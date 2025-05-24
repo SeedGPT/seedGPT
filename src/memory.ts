@@ -1,14 +1,13 @@
-import * as fs from 'fs';
+import * as fs from 'fs'
 
-export async function loadMemory(cfg: any): Promise<string> {
-	// e.g. read last summary file or query a vector DB for top-k memories
-	return fs.existsSync(cfg.summaries + 'latest.txt')
-		? fs.readFileSync(cfg.summaries + 'latest.txt', 'utf-8')
-		: '';
+import { Config } from './types'
+
+export async function loadMemory (memoryCfg: Config['memory']): Promise<string> {
+	return fs.existsSync(memoryCfg.summaries + 'latest.txt')
+		? fs.readFileSync(memoryCfg.summaries + 'latest.txt', 'utf-8')
+		: ''
 }
 
-export async function updateMemory(cfg: any, summary: string) {
-	// append new summary and optionally embed into vector store
-	fs.writeFileSync(cfg.summaries + Date.now() + '.md', summary);
-	// also push into a vector DB here...
+export async function updateMemory (memoryCfg: Config['memory'], summary: string) {
+	fs.writeFileSync(memoryCfg.summaries + Date.now() + '.md', summary)
 }

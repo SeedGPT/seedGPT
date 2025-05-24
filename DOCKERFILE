@@ -1,13 +1,35 @@
-FROM node:18-alpine
+# This dockerfile specifies the environment the production
+# code will be run in, along with what files are needed
+# for production
 
+# Use an official Node.js runtime as the base image
+FROM node:lts-bookworm-slim
+
+# Use a non-interactive frontend for debconf
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set working directory
 WORKDIR /app
 
+# Create a user within the container
+RUN useradd -m seedGPT_user
+
+# Copy the app directory, package.json, package-lock.json, prompts, 
+COPY dist/app/ ./
 COPY package*.json ./
-RUN npm ci
+COPY prompts/ ./
 
-COPY . .
-RUN npm run build
+# Change the ownership of the copied files to backend_user
+RUN chown -R seedGPT_user:seedGPT_user /app
 
-EXPOSE 3000
+# Switch to user for subsequent commands
+USER seedGPT_user
 
+# Clean install production dependencies
+RUN npm ci --omit=dev
+
+# Expose the port Express.js runs on
+EXPOSE 5000
+
+# Command to run the application
 CMD ["npm", "start"]
