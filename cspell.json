@@ -19,17 +19,12 @@
         "dist/**"
     ],
     "ignoreWords": [
-        "KHTML",
-        "SUMUP",
-        "sumup",
         "BETTERSTACK",
         "Logtail",
         "logtail",
         "readyz",
         "livez",
-        "chunkname",
-        "unpair",
-        "Unpairing",
-        "unpairing"
+        "Semgrep",
+        "claude"
     ]
 }
