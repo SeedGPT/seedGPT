@@ -1,0 +1,11 @@
+Your task is: {{TASK_DESC}}
+
+Please return a unified diff (git patch format) that implements this task on the current repository.
+Only include relevant changes. Do not include unnecessary whitespace-only changes.
+
+If the task requires multiple files to change, include them all in the same diff.
+
+Surround the output in triple backticks with diff syntax:
+```diff
+<your patch here>
+```

@@ -1,0 +1,15 @@
+Please review the following git patch for correctness, security, readability, and alignment with best practices.
+
+Use a checklist format:
+- [✓/✗] Does the patch implement the intended change?
+- [✓/✗] Does it follow consistent style and naming?
+- [✓/✗] Are there obvious bugs or missed edge cases?
+- [✓/✗] Is the code secure? Any risk of injection, unsafe eval, etc.?
+- [✓/✗] Are tests or documentation included if applicable?
+
+Explain each ✗ if found.
+
+Patch:
+```diff
+{{PATCH}}
+```

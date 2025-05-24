@@ -1,0 +1,24 @@
+# agent-config.yaml
+objectives:
+  - "Maintain 100% test coverage on all new code"
+  - "Always update documentation (README, CHANGELOG, PROGRESS.md)"
+  - "Run AI code review on every patch"
+  - "Run security scan (Semgrep) and fix violations before PR"
+  - "Keep task list concise: break large tasks into sub-tasks"
+  - "Summarize each merge into PROGRESS.md"
+  - "Manage long-term memory via summaries and vector embeddings"
+
+memory:
+  store: "./memory.db"         # (e.g. SQLite or vector DB connection string)
+  summaries: "./summaries/"    # folder for per-file summaries
+
+files:
+  tasks: "./tasks.yaml"
+  progress: "./PROGRESS.md"
+  changelog: "./CHANGELOG.md"
+  dashboard: "./src/dashboard.ts"
+
+prompts:
+  patch: "./prompts/patch_generation.template"
+  review: "./prompts/patch_review.template"
+  summarize: "./prompts/merge_summarize.template"

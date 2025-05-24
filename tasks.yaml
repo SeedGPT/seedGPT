@@ -1,0 +1,29 @@
+- id: 1
+  description: "Add README with overview & setup instructions"
+  priority: high
+  status: pending
+
+- id: 2
+  description: "Integrate Semgrep security scanner into CI"
+  priority: high
+  status: pending
+
+- id: 3
+  description: "Add AI code-review step before commit"
+  priority: high
+  status: pending
+
+- id: 4
+  description: "Create PROGRESS.md and log summaries of merges"
+  priority: medium
+  status: pending
+
+- id: 5
+  description: "Implement memory summarization and vector store integration"
+  priority: medium
+  status: pending
+
+- id: 6
+  description: "Build dashboard (Express) to serve tasks & progress"
+  priority: low
+  status: pending

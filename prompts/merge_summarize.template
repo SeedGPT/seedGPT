@@ -1,0 +1,9 @@
+A pull request (#{{PR_NUMBER}}) was just merged into the main branch.
+
+Please write a 1–2 paragraph summary of:
+- What the task was
+- How it was implemented
+- Any changes to architecture, tooling, testing, etc.
+- Any new capabilities the system now has
+
+Keep the tone clear, concise, and factual. The summary will be logged in `PROGRESS.md`.
