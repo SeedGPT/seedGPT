@@ -1,10 +1,10 @@
 import fs from 'fs';
 import yaml from 'js-yaml';
-import { OpenAI } from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { Task } from './taskManager';
 
 export async function generateNewTasks(
-	llm: OpenAI,
+	anthropic: Anthropic,
 	cfg: any,
 	existingTasks: Task[]
 ): Promise<Task[]> {
@@ -12,12 +12,9 @@ export async function generateNewTasks(
 	const objectives = (cfg.objectives as string[])
 		.map(o => `• ${o}`)
 		.join('\n');
-	const systemMsg: OpenAI.Chat.Completions.ChatCompletionMessageParam = {
-		role: 'system',
-		content: `You are an autonomous dev agent.  
+	const systemPrompt = `You are an autonomous dev agent.  
 Your objectives are:
-${objectives}`
-	};
+${objectives}`;
 
 	// 2) Build user prompt: show current tasks & memory summary
 	const tasksYaml = yaml.dump(existingTasks);
@@ -26,9 +23,7 @@ ${objectives}`
 		? fs.readFileSync(memFile, 'utf-8')
 		: '';
 
-	const userMsg: OpenAI.Chat.Completions.ChatCompletionMessageParam = {
-		role: 'user',
-		content: `Here are the tasks I have so far:
+	const userContent = `Here are the tasks I have so far:
 \`\`\`yaml
 ${tasksYaml}
 \`\`\`
@@ -47,18 +42,18 @@ Please propose up to 5 new, non-duplicate tasks (id, description, priority: high
   …
 ]
 \`\`\`
-`
-	};
+`;
 
 	// 3) Call the LLM
-	const resp = await llm.chat.completions.create({
-		model: 'gpt-4',
-		messages: [systemMsg, userMsg],
-		temperature: 0.7
+	const resp = await anthropic.messages.create({
+		model: 'claude-3-5-sonnet-20241022',
+		max_tokens: 4096,
+		system: systemPrompt,
+		messages: [{ role: 'user', content: userContent }]
 	});
 
 	// 4) Parse its JSON output
-	const content = resp.choices[0].message?.content || '[]';
+	const content = resp.content[0].type === 'text' ? resp.content[0].text : '[]';
 	let newTasks: Task[];
 	try {
 		newTasks = JSON.parse(content) as Task[];

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import dotenv from 'dotenv';
 import simpleGit, { SimpleGit } from 'simple-git';
 import { Octokit } from '@octokit/rest';
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 
 import { runSemgrepScan } from './securityScanner.js';
 import { aiReviewPatch } from './codeReviewer.js';
@@ -11,32 +11,35 @@ import { loadMemory, updateMemory } from './memory.js';
 import { loadConfig, loadTasks, saveTasks, Task } from './taskManager.js';
 import { appendProgress } from './progressLogger.js';
 import { generateNewTasks } from './taskGenerator.js';
+import { AnthropicMessage } from './types.js';
 
 dotenv.config();
 
 const git: SimpleGit = simpleGit();
-const llm = new OpenAI({ apiKey: process.env.LLM_API_KEY! });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 const cfg = loadConfig('agent-config.yaml');
 
-async function buildSystemMessages(): Promise<OpenAI.ChatCompletionMessageParam[]> {
+async function buildSystemMessages(): Promise<{ system: string; messages: AnthropicMessage[] }> {
 	const objectives = cfg.objectives.map((o: string) => `• ${o}`).join('\n');
 	const system = `You are an autonomous agent with these objectives:\n${objectives}`;
 
 	const memSum = await loadMemory(cfg.memory);
-	const memoryMsg: OpenAI.ChatCompletionMessageParam[] = memSum
-		? [{ role: 'system', content: `Memory Summary:\n${memSum}` }]
+	const messages: AnthropicMessage[] = memSum
+		? [{ role: 'user', content: `Memory Summary:\n${memSum}` }]
 		: [];
 
-	return [{ role: 'system', content: system } as OpenAI.ChatCompletionMessageParam, ...memoryMsg];
+	return { system, messages };
 }
 
-export async function callLLM(messages: OpenAI.ChatCompletionMessageParam[]) {
-	const resp = await llm.chat.completions.create({
-		model: 'gpt-4',
+export async function callLLM(messages: AnthropicMessage[], systemPrompt?: string) {
+	const resp = await anthropic.messages.create({
+		model: 'claude-3-5-sonnet-20241022',
+		max_tokens: 4096,
+		system: systemPrompt,
 		messages
 	});
-	return resp.choices[0].message?.content || '';
+	return resp.content[0].type === 'text' ? resp.content[0].text : '';
 }
 
 async function run() {
@@ -45,7 +48,7 @@ async function run() {
 	const pending = tasks.filter(t => t.status === 'pending');
 	if (pending.length === 0) {
 		console.log('🧠 Backlog empty – asking LLM to generate new tasks…');
-		const newTasks = await generateNewTasks(llm, cfg, tasks);
+		const newTasks = await generateNewTasks(anthropic, cfg, tasks);
 		if (newTasks.length) {
 			tasks = tasks.concat(newTasks);
 			saveTasks(cfg.files.tasks, tasks);
@@ -66,7 +69,7 @@ async function run() {
 	task.status = 'in-progress';
 	saveTasks(cfg.files.tasks, tasks);
 
-	const systemMsgs = await buildSystemMessages();
+	const { system, messages: systemMsgs } = await buildSystemMessages();
 
 	// PATCH GENERATION
 	const patchPrompt = fs.readFileSync(cfg.prompts.patch, 'utf-8')
@@ -74,7 +77,7 @@ async function run() {
 	let patch = await callLLM([
 		...systemMsgs,
 		{ role: 'user', content: patchPrompt }
-	]);
+	], system);
 
 	// REVIEW
 	const reviewPrompt = fs.readFileSync(cfg.prompts.review, 'utf-8')
@@ -82,11 +85,11 @@ async function run() {
 	const reviewFeedback = await aiReviewPatch([
 		...systemMsgs,
 		{ role: 'user', content: reviewPrompt }
-	]);
+	], system);
 
 	if (reviewFeedback.includes('✗')) {
 		const fixPrompt = `Please fix this patch:\n${patch}\n\nBased on the following review:\n${reviewFeedback}`;
-		patch = await callLLM([...systemMsgs, { role: 'user', content: fixPrompt }]);
+		patch = await callLLM([...systemMsgs, { role: 'user', content: fixPrompt }], system);
 	}
 
 	// APPLY PATCH
@@ -105,7 +108,7 @@ async function run() {
 	if (violations.length > 0) {
 		console.log(`🔒 Semgrep found issues:\n${violations.join('\n')}`);
 		const fixPrompt = `Fix these Semgrep issues:\n${violations.join('\n')}`;
-		const secPatch = await callLLM([...systemMsgs, { role: 'user', content: fixPrompt }]);
+		const secPatch = await callLLM([...systemMsgs, { role: 'user', content: fixPrompt }], system);
 		fs.writeFileSync('sec.fix.patch', secPatch);
 		await git.raw(['apply', 'sec.fix.patch']);
 	}
@@ -133,7 +136,7 @@ async function run() {
 	const summary = await summarizeMerge([
 		...systemMsgs,
 		{ role: 'user', content: summarizePrompt }
-	]);
+	], system);
 	appendProgress(cfg.files.progress, summary);
 	await updateMemory(cfg.memory, summary);
 
