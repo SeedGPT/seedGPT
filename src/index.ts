@@ -2,7 +2,6 @@ import * as fs from 'fs'
 
 import Anthropic from '@anthropic-ai/sdk'
 import { Octokit } from '@octokit/rest'
-import dotenv from 'dotenv'
 import SimpleGitLib, { type SimpleGit } from 'simple-git'
 
 import { CIManager } from './ciManager.js'
@@ -19,8 +18,6 @@ import {
 import { loadConfig, loadTasks, saveTasks } from './taskManager.js'
 import { AnthropicMessage, Config, type Task } from './types.js'
 import { WorkspaceManager } from './workspaceManager.js'
-
-dotenv.config()
 
 const requiredEnvVars = ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'GITHUB_REPO_OWNER', 'GITHUB_REPO_NAME']
 for (const envVar of requiredEnvVars) {

@@ -18,18 +18,6 @@ RUN useradd -m -s /bin/bash seedgpt_user
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Install all dependencies (including dev dependencies for building)
-RUN npm ci
-
-# Copy source code and configuration files
-COPY src/ ./src/
-COPY agent-config.yaml ./
-COPY tasks.yaml ./
-COPY prompts/ ./prompts/
-
-# Build the TypeScript code
-RUN npm run build
-
 # Remove dev dependencies after build
 RUN npm ci --omit=dev
 
