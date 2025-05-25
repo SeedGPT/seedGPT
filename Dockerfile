@@ -15,8 +15,8 @@ WORKDIR /app
 RUN useradd -m -s /bin/bash seedgpt_user
 
 # Copy package files and dist directory
+COPY dist/src/ ./
 COPY package*.json ./
-COPY dist ./dist
 
 # Install production dependencies
 RUN npm ci --omit=dev
