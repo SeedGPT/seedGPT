@@ -1,23 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: seedGPT
-    namespace: seedGPT
+    name: seedgpt
+    namespace: seedgpt
 spec:
     replicas: 1
     selector:
         matchLabels:
-            app: seedGPT
+            app: seedgpt
     template:
         metadata:
             labels:
-                app: seedGPT
+                app: seedgpt
         spec:
             automountServiceAccountToken: false
             containers:
-                -   name: seedGPT
+                -   name: seedgpt
                     image: "rhaversen/seedgpt:${GITHUB_SHA}"
                     imagePullPolicy: Always
                     envFrom:
                         -   secretRef:
-                                name: seedGPT-secrets
+                                name: seedgpt-secrets
