@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "tsc",
-		"start": "node dist/index.js",
+		"start": "node index.js",
 		"test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
 		"upgrade": "npm update && npx ncu -u && npm install"
 	},
