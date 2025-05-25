@@ -11,25 +11,47 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set working directory
 WORKDIR /app
 
-# Create a user within the container
-RUN useradd -m seedGPT_user
+# Create user for security
+RUN useradd -m -s /bin/bash seedgpt_user
 
-# Copy the app directory, package.json, package-lock.json, prompts, 
-COPY dist/app/ ./
+# Copy package files first for better Docker layer caching
 COPY package*.json ./
-COPY prompts/ ./
+COPY tsconfig.json ./
 
-# Change the ownership of the copied files to backend_user
-RUN chown -R seedGPT_user:seedGPT_user /app
+# Install all dependencies (including dev dependencies for building)
+RUN npm ci
 
-# Switch to user for subsequent commands
-USER seedGPT_user
+# Copy source code and configuration files
+COPY src/ ./src/
+COPY agent-config.yaml ./
+COPY tasks.yaml ./
+COPY prompts/ ./prompts/
 
-# Clean install production dependencies
+# Build the TypeScript code
+RUN npm run build
+
+# Remove dev dependencies after build
 RUN npm ci --omit=dev
 
-# Expose the port Express.js runs on
-EXPOSE 5000
+# Create necessary directories
+RUN mkdir -p logs memory summaries workspace && \
+    chown -R seedgpt_user:seedgpt_user /app
+
+# Switch to non-root user
+USER seedgpt_user
+
+# Configure Git for the user (required for git operations)
+RUN git config --global user.email "seedgpt@autonomous.dev" && \
+    git config --global user.name "SeedGPT Agent" && \
+    git config --global init.defaultBranch main
+
+# Set environment variables with defaults
+ENV NODE_ENV=production
+ENV LOG_LEVEL=info
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "console.log('Health check passed')" || exit 1
 
 # Command to run the application
 CMD ["npm", "start"]

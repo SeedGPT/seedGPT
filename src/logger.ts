@@ -29,7 +29,7 @@ const winstonLogger = createLogger({
 		_format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:SSS' }),
 		_format.json()
 	),
-	defaultMeta: { service: 'exsys-backend' }, // Set a default metadata field
+	defaultMeta: { service: 'seedGPT' }, // Set a default metadata field
 	transports: [
 		new _transports.File({
 			filename: join(logDirectory, 'error.log'),

@@ -1,34 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: self-evolving-agent
-  labels:
-    app: agent
+    name: seedGPT
+    namespace: seedGPT
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: agent
-  template:
-    metadata:
-      labels:
-        app: agent
-    spec:
-      containers:
-        - name: agent
-          image: your-docker-registry/self-evolving-agent:latest
-          env:
-            - name: GITHUB_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: agent-secrets
-                  key: github-token
-            - name: LLM_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: agent-secrets
-                  key: llm-api-key
-            - name: GITHUB_REPO_OWNER
-              value: your-username
-            - name: GITHUB_REPO_NAME
-              value: seed
+    replicas: 1
+    selector:
+        matchLabels:
+            app: seedGPT
+    template:
+        metadata:
+            labels:
+                app: seedGPT
+        spec:
+            automountServiceAccountToken: false
+            containers:
+                -   name: seedGPT
+                    image: "rhaversen/seedGPT:${GITHUB_SHA}"
+                    imagePullPolicy: Always
+                    envFrom:
+                        -   secretRef:
+                                name: seedGPT-secrets

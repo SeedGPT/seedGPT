@@ -1,24 +1,56 @@
 - id: 1
-  description: Add README with overview & setup instructions
+  description: Add comprehensive README with architecture overview
   priority: high
-  status: in-progress
+  status: done
 - id: 2
-  description: Integrate Semgrep security scanner into CI
-  priority: high
+  description: Integrate Semgrep security scanner into CI pipeline with automated fixes
+  priority: medium
   status: pending
 - id: 3
-  description: Add AI code-review step before commit
+  description: Implement comprehensive error handling with custom error classes and proper error propagation
   priority: high
   status: pending
 - id: 4
-  description: Create PROGRESS.md and log summaries of merges
-  priority: medium
+  description: Create automated testing framework with unit tests, integration tests, and test coverage reporting
+  priority: high
   status: pending
 - id: 5
-  description: Implement memory summarization and vector store integration
-  priority: medium
+  description: Refactor codebase to eliminate technical debt and improve maintainability with consistent patterns
+  priority: high
   status: pending
 - id: 6
-  description: Build dashboard (Express) to serve tasks & progress
+  description: Build vector database integration for intelligent long-term memory and context retrieval
+  priority: medium
+  status: pending
+- id: 7
+  description: Implement sprint-based planning with automated evaluation and retrospective cycles
+  priority: medium
+  status: pending
+- id: 8
+  description: Create intelligent code analysis tools to understand and improve existing codebase architecture
+  priority: medium
+  status: pending
+- id: 9
+  description: Build capability for multi-file refactoring and large-scale architectural improvements
+  priority: medium
+  status: pending
+- id: 10
+  description: Implement automated deployment pipeline with health checks and rollback capabilities
+  priority: low
+  status: pending
+- id: 11
+  description: Create self-monitoring system with performance metrics and automated optimization
+  priority: low
+  status: pending
+- id: 12
+  description: Add comprehensive logging and observability with structured logging and metrics collection
+  priority: medium
+  status: pending
+- id: 13
+  description: Implement advanced AI code review system with context-aware suggestions and improvements
+  priority: medium
+  status: pending
+- id: 14
+  description: Build intelligent documentation generator that creates and updates documentation based on code changes
   priority: low
   status: pending

@@ -1,0 +1,50 @@
+name: "Push to DevOps Repo"
+description: "Updates deployment files and pushes to DevOps repository"
+
+inputs:
+    devops_repo_token:
+        description: "Token for the DevOps repository"
+        required: true
+
+runs:
+    using: "composite"
+    steps:
+        -   name: Checkout code
+            uses: actions/checkout@v4
+
+        -   name: Configure Git
+            run: |
+                git config --global user.name "GitHub Actions Bot"
+                git config --global user.email "actions@github.com"
+            shell: bash
+
+        -   name: Replace image tag in deployment.yaml
+            run: |
+                sed -i "s/\${GITHUB_SHA}/${{ github.sha }}/g" k8s/deployment.yaml
+            shell: bash
+
+        -   name: Commit changes
+            run: |
+                git add k8s/*
+                git commit -m "${{ github.sha }}"
+            shell: bash
+
+        -   name: Checkout seedGPT-DevOps
+            uses: actions/checkout@v4
+            with:
+                repository: "rhaversen/seedGPT-DevOps"
+                token: ${{ inputs.devops_repo_token }}
+                path: "seedGPT-DevOps"
+
+        -   name: Copy files to seedGPT-DevOps
+            run: |
+                cp -r k8s/* seedGPT-DevOps/k8s/
+            shell: bash
+
+        -   name: Push changes to seedGPT-DevOps
+            run: |
+                cd seedGPT-DevOps
+                git add k8s/*
+                git commit -m "${{ github.sha }}"
+                git push origin HEAD
+            shell: bash

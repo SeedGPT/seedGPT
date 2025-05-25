@@ -25,6 +25,8 @@
         "readyz",
         "livez",
         "Semgrep",
-        "claude"
+        "semgrep",
+        "claude",
+        "Sandboxed"
     ]
 }

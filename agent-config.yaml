@@ -3,10 +3,26 @@ objectives:
   - "Maintain 100% test coverage on all new code"
   - "Always update documentation (README, CHANGELOG, PROGRESS.md)"
   - "Run AI code review on every patch"
-  - "Run security scan (Semgrep) and fix violations before PR"
   - "Keep task list concise: break large tasks into sub-tasks"
   - "Summarize each merge into PROGRESS.md"
   - "Manage long-term memory via summaries and vector embeddings"
+  - "Follow clean code principles and software engineering best practices"
+  - "Write self-documenting code with meaningful names and clear structure"
+  - "Refactor ruthlessly to eliminate technical debt"
+
+workingDirectory: "./workspace"
+
+git:
+  remoteName: "origin"
+  mainBranch: "main"
+
+ci:
+  maxWaitMinutes: 15
+  pollIntervalSeconds: 30
+
+models:
+  important: "claude-3-opus-20240229"  # For critical tasks: code generation, reviews, complex analysis
+  routine: "claude-3-5-haiku-20241022"  # For routine tasks: summaries, documentation updates
 
 memory:
   store: "./memory.db"         # (e.g. SQLite or vector DB connection string)
@@ -16,9 +32,3 @@ files:
   tasks: "./tasks.yaml"
   progress: "./PROGRESS.md"
   changelog: "./CHANGELOG.md"
-  dashboard: "./src/dashboard.ts"
-
-prompts:
-  patch: "./prompts/patch_generation.template"
-  review: "./prompts/patch_review.template"
-  summarize: "./prompts/merge_summarize.template"

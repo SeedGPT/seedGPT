@@ -2,7 +2,7 @@ import fs from 'fs'
 
 import yaml from 'js-yaml'
 
-import { Config } from './types'
+import { Config } from './types.js'
 
 export interface Task {
 	id: number;

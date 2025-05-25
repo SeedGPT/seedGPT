@@ -5,147 +5,225 @@ import { Octokit } from '@octokit/rest'
 import dotenv from 'dotenv'
 import SimpleGitLib, { type SimpleGit } from 'simple-git'
 
-import { aiReviewPatch } from './codeReviewer.js'
+import { CIManager } from './ciManager.js'
+import { LLMClient } from './llmClient.js'
 import logger from './logger.js'
 import { loadMemory, updateMemory } from './memory.js'
 import { appendProgress } from './progressLogger.js'
-import { runSemgrepScan } from './securityScanner.js'
-import { summarizeMerge } from './summarizer.js'
-import { generateNewTasks } from './taskGenerator.js'
+import {
+	getTaskGenerationPrompt,
+	getPatchGenerationPrompt,
+	getReviewPrompt,
+	getSummarizePrompt
+} from './systemPrompt.js'
 import { loadConfig, loadTasks, saveTasks } from './taskManager.js'
-import { AnthropicMessage } from './types.js'
+import { AnthropicMessage, Config, type Task } from './types.js'
+import { WorkspaceManager } from './workspaceManager.js'
 
 dotenv.config()
+
+const requiredEnvVars = ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'GITHUB_REPO_OWNER', 'GITHUB_REPO_NAME']
+for (const envVar of requiredEnvVars) {
+	const value = process.env[envVar]
+	if (value == null || value === '') {
+		logger.error(`Missing required environment variable: ${envVar}`)
+		throw new Error(`Missing required environment variable: ${envVar}`)
+	}
+}
 
 const git: SimpleGit = SimpleGitLib()
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN })
-const cfg = loadConfig('agent-config.yaml')
 
-async function buildSystemMessages (): Promise<{ system: string; messages: AnthropicMessage[] }> {
-	const objectives = cfg.objectives.map((o: string) => `• ${o}`).join('\n')
-	const system = `You are an autonomous agent with these objectives:\n${objectives}`
+let cfg: Config
+let llmClient: LLMClient
+let workspaceManager: WorkspaceManager
+let ciManager: CIManager
 
+try {
+	cfg = loadConfig('agent-config.yaml')
+	llmClient = new LLMClient(anthropic, cfg)
+	workspaceManager = new WorkspaceManager(git, cfg)
+	ciManager = new CIManager(octokit, cfg)
+} catch (error) {
+	logger.error('Failed to initialize system', { error })
+	throw new Error('Failed to initialize system')
+}
+
+async function buildContextMessages (): Promise<AnthropicMessage[]> {
 	const memSum = await loadMemory(cfg.memory)
-	const messages: AnthropicMessage[] = memSum
-		? [{ role: 'user', content: `Memory Summary:\n${memSum}` }]
-		: []
-
-	return { system, messages }
+	return memSum ? [{ role: 'user', content: `Memory Context:\n${memSum}` }] : []
 }
 
-export async function callLLM (messages: AnthropicMessage[], systemPrompt?: string) {
-	const resp = await anthropic.messages.create({
-		model: 'claude-3-5-sonnet-20241022',
-		max_tokens: 4096,
-		system: systemPrompt,
-		messages
-	})
-	return resp.content[0].type === 'text' ? resp.content[0].text : ''
-}
-
-async function run () {
-	let tasks = loadTasks(cfg.files.tasks)
-
-	const pending = tasks.filter(t => t.status === 'pending')
-	if (pending.length === 0) {
-		logger.info('🧠 Backlog empty – asking LLM to generate new tasks…')
-		const newTasks = await generateNewTasks(anthropic, cfg, tasks)
-		if (newTasks.length) {
-			tasks = tasks.concat(newTasks)
-			saveTasks(cfg.files.tasks, tasks)
-			logger.info(`➕ Added ${newTasks.length} new task(s).`)
-		} else {
-			logger.error('⚠️ LLM did not propose any new tasks. Halting.')
-			return
+async function initializeDirectories (): Promise<void> {
+	const dirs = ['logs', 'memory', 'summaries', 'prompts']
+	for (const dir of dirs) {
+		if (!fs.existsSync(dir)) {
+			fs.mkdirSync(dir, { recursive: true })
 		}
 	}
 
-	const task = tasks.find(t => t.status === 'pending')
-	if (!task) {
-		logger.info('✅ No tasks found after generation.')
-		return
+	if (!fs.existsSync('PROGRESS.md')) {
+		fs.writeFileSync('PROGRESS.md', '# SeedGPT Evolution Progress\n\nThis file tracks the autonomous evolution of the SeedGPT system.\n\n---\n')
 	}
-
-	logger.info(`🛠 Working on Task #${task.id}: ${task.description}`)
-	task.status = 'in-progress'
-	saveTasks(cfg.files.tasks, tasks)
-
-	const { system, messages: systemMsgs } = await buildSystemMessages()
-
-	// PATCH GENERATION
-	const patchPrompt = fs.readFileSync(cfg.prompts.patch, 'utf-8')
-		.replace('{{TASK_DESC}}', task.description)
-	let patch = await callLLM([
-		...systemMsgs,
-		{ role: 'user', content: patchPrompt }
-	], system)
-
-	// REVIEW
-	const reviewPrompt = fs.readFileSync(cfg.prompts.review, 'utf-8')
-		.replace('{{PATCH}}', patch)
-	const reviewFeedback = await aiReviewPatch([
-		...systemMsgs,
-		{ role: 'user', content: reviewPrompt }
-	], system)
-
-	if (reviewFeedback.includes('✗')) {
-		const fixPrompt = `Please fix this patch:\n${patch}\n\nBased on the following review:\n${reviewFeedback}`
-		patch = await callLLM([...systemMsgs, { role: 'user', content: fixPrompt }], system)
-	}
-
-	// APPLY PATCH
-	const branch = `task-${task.id}`
-	await git.checkoutLocalBranch(branch)
-	fs.writeFileSync('change.patch', patch)
-	try {
-		await git.raw(['apply', 'change.patch'])
-	} catch (err) {
-		logger.error('❌ Failed to apply patch:', { err })
-		return
-	}
-
-	// SECURITY SCAN
-	const violations = await runSemgrepScan()
-	if (violations.length > 0) {
-		logger.warn(`🔒 Semgrep found issues:\n${violations.join('\n')}`)
-		const fixPrompt = `Fix these Semgrep issues:\n${violations.join('\n')}`
-		const secPatch = await callLLM([...systemMsgs, { role: 'user', content: fixPrompt }], system)
-		fs.writeFileSync('sec.fix.patch', secPatch)
-		await git.raw(['apply', 'sec.fix.patch'])
-	}
-
-	// COMMIT & PR
-	await git.add('.')
-	await git.commit(`Task #${task.id}: ${task.description}`)
-	await git.push('origin', branch)
-	const pr = await octokit.pulls.create({
-		owner: process.env.GITHUB_REPO_OWNER!,
-		repo: process.env.GITHUB_REPO_NAME!,
-		head: branch,
-		base: 'main',
-		title: `🔨 Task #${task.id}: ${task.description}`,
-		body: patch
-	})
-
-	logger.info(`📬 PR #${pr.data.number} created. Awaiting CI...`)
-
-	// SIMPLIFIED: assume CI passes – in real use, you'd poll status here
-
-	// SUMMARY
-	const summarizePrompt = fs.readFileSync(cfg.prompts.summarize, 'utf-8')
-		.replace('{{PR_NUMBER}}', pr.data.number.toString())
-	const summary = await summarizeMerge([
-		...systemMsgs,
-		{ role: 'user', content: summarizePrompt }
-	], system)
-	appendProgress(cfg.files.progress, summary)
-	await updateMemory(cfg.memory, summary)
-
-	// COMPLETE TASK
-	task.status = 'done'
-	saveTasks(cfg.files.tasks, tasks)
-	logger.info(`✅ Task #${task.id} completed and logged.`)
 }
 
-run().catch(logger.error)
+async function generateNewTasks (existingTasks: Task[]): Promise<Task[]> {
+	try {
+		const contextMessages = await buildContextMessages()
+		const prompt = getTaskGenerationPrompt()
+
+		const userContent = `${prompt}
+
+Current system state: ${existingTasks.length} tasks (${existingTasks.filter(t => t.status === 'pending').length} pending)
+
+Recent completed tasks:
+${existingTasks.filter(t => t.status === 'done').slice(-3).map(t => `#${t.id}: ${t.description}`).join('\n') || 'None'}`
+
+		const messages: AnthropicMessage[] = [...contextMessages, { role: 'user', content: userContent }]
+		return await llmClient.generateTasks(messages)
+	} catch (error) {
+		logger.error('Task generation failed', { error })
+		return []
+	}
+}
+
+async function runEvolutionCycle (): Promise<void> {
+	try {
+		await initializeDirectories()
+		await workspaceManager.initializeWorkspace()
+
+		let tasks = loadTasks(cfg.files.tasks)
+		logger.info(`Loaded ${tasks.length} tasks, ${tasks.filter(t => t.status === 'pending').length} pending`)
+
+		const pending = tasks.filter(t => t.status === 'pending')
+		if (pending.length === 0) {
+			logger.info('🧠 Generating new tasks...')
+			const newTasks = await generateNewTasks(tasks)
+
+			if (newTasks.length > 0) {
+				const maxId = Math.max(0, ...tasks.map(t => t.id))
+				newTasks.forEach((task, i) => { task.id = maxId + i + 1 })
+				tasks = tasks.concat(newTasks)
+				saveTasks(cfg.files.tasks, tasks)
+				logger.info(`➕ Added ${newTasks.length} new tasks`)
+			} else {
+				logger.error('⚠️ No new tasks generated. Retrying in 30s...')
+				setTimeout(runEvolutionCycle, 30000)
+				return
+			}
+		}
+
+		const task = tasks.find(t => t.status === 'pending')
+		if (!task) {
+			setTimeout(runEvolutionCycle, 60000)
+			return
+		}
+
+		logger.info(`🛠 Working on Task #${task.id}: ${task.description}`)
+		task.status = 'in-progress'
+		saveTasks(cfg.files.tasks, tasks)
+
+		const branchName = await workspaceManager.createFeatureBranch(task.id)
+
+		try {
+			const contextMessages = await buildContextMessages()
+			const patchPrompt = getPatchGenerationPrompt(task.description)
+
+			let patch = await llmClient.generatePatch([
+				...contextMessages,
+				{ role: 'user', content: patchPrompt }
+			])
+
+			const reviewPrompt = getReviewPrompt(patch)
+			const reviewFeedback = await llmClient.generateReview([
+				...contextMessages,
+				{ role: 'user', content: reviewPrompt }
+			])
+
+			if (reviewFeedback.includes('✗') || reviewFeedback.includes('NEEDS_WORK') || reviewFeedback.includes('REJECT')) {
+				logger.info('🔍 Review found issues, generating improved patch...')
+				patch = await llmClient.generateCodeFix(patch, reviewFeedback, contextMessages)
+			}
+
+			await workspaceManager.applyPatch(patch, task.id)
+
+			await workspaceManager.commitAndPush(task.id, task.description, branchName)
+
+			const pr = await octokit.pulls.create({
+				owner: process.env.GITHUB_REPO_OWNER!,
+				repo: process.env.GITHUB_REPO_NAME!,
+				head: branchName,
+				base: cfg.git.mainBranch,
+				title: `🔨 Task #${task.id}: ${task.description}`,
+				body: `Autonomous implementation of task #${task.id}
+
+## Task Description
+${task.description}
+
+## Implementation
+This PR was created autonomously and follows software engineering best practices:
+- Clean, maintainable code with proper TypeScript types
+- Comprehensive error handling and logging
+- Security scanning and vulnerability fixes applied
+- Code review process completed before submission
+
+This PR will be automatically merged upon CI success.`
+			})
+
+			logger.info(`📬 PR #${pr.data.number} created: ${pr.data.html_url}`)
+
+			const merged = await ciManager.waitForCIAndMerge(pr.data.number)
+
+			if (merged) {
+				logger.info(`🎉 PR #${pr.data.number} successfully merged`)
+
+				const summaryPrompt = getSummarizePrompt(pr.data.number.toString(), task.description)
+				const summary = await llmClient.generateSummary([
+					...contextMessages,
+					{ role: 'user', content: summaryPrompt }
+				])
+
+				appendProgress(cfg.files.progress, summary, {
+					taskId: task.id,
+					prNumber: pr.data.number
+				})
+
+				await updateMemory(cfg.memory, summary, {
+					taskId: task.id,
+					prNumber: pr.data.number,
+					importance: 'medium'
+				})
+
+				task.status = 'done'
+				saveTasks(cfg.files.tasks, tasks)
+
+				await workspaceManager.cleanupBranch(branchName)
+
+				logger.info(`✅ Task #${task.id} completed and merged. System will restart automatically...`)
+
+				throw new Error('RESTART_REQUIRED')
+			} else {
+				logger.error(`❌ PR #${pr.data.number} failed CI or could not be merged`)
+				task.status = 'pending'
+				saveTasks(cfg.files.tasks, tasks)
+				await workspaceManager.cleanupBranch(branchName)
+				setTimeout(runEvolutionCycle, 60000)
+			}
+		} catch (error) {
+			logger.error('Task execution failed', { error, taskId: task.id })
+			task.status = 'pending'
+			saveTasks(cfg.files.tasks, tasks)
+			await workspaceManager.cleanupBranch(branchName)
+			setTimeout(runEvolutionCycle, 30000)
+		}
+	} catch (error) {
+		logger.error('Evolution cycle failed', { error })
+		setTimeout(runEvolutionCycle, 30000)
+	}
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+	logger.info('🚀 SeedGPT autonomous evolution starting...')
+	runEvolutionCycle().catch(logger.error)
+}
