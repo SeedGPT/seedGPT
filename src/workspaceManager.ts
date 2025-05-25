@@ -86,12 +86,33 @@ export class WorkspaceManager {
 			await this.syncWithRemote()
 
 			const branchName = `feature/task-${taskId}-${Date.now()}`
+			
+			// Check current status before creating branch
+			const currentBranch = await this.git.branch()
+			logger.debug('Creating feature branch', { 
+				taskId, 
+				newBranch: branchName,
+				currentBranch: currentBranch.current,
+				workspacePath: this.workspacePath
+			})
+
 			await this.git.checkoutLocalBranch(branchName)
 
-			logger.info('Created feature branch', { branch: branchName })
+			// Verify branch creation
+			const newBranch = await this.git.branch()
+			if (newBranch.current !== branchName) {
+				throw new Error(`Branch creation failed: expected ${branchName}, got ${newBranch.current}`)
+			}
+
+			logger.info('Created feature branch', { branch: branchName, taskId })
 			return branchName
 		} catch (error) {
-			logger.error('Failed to create feature branch', { error, taskId })
+			logger.error('Failed to create feature branch', { 
+				error, 
+				taskId,
+				workspacePath: this.workspacePath,
+				errorMessage: error instanceof Error ? error.message : String(error)
+			})
 			throw error
 		}
 	}
@@ -101,12 +122,53 @@ export class WorkspaceManager {
 			const patchFile = path.join(this.workspacePath, `task-${taskId}.patch`)
 			fs.writeFileSync(patchFile, patchContent)
 
-			await this.git.raw(['apply', '--index', patchFile])
+			logger.debug('Applying patch', { 
+				taskId, 
+				patchLength: patchContent.length,
+				patchPreview: patchContent.substring(0, 200) + (patchContent.length > 200 ? '...' : '')
+			})
+
+			const result = await this.git.raw(['apply', '--index', patchFile])
 			fs.unlinkSync(patchFile)
 
-			logger.debug('Patch applied successfully', { taskId })
+			logger.debug('Patch applied successfully', { taskId, gitResult: result })
 		} catch (error) {
-			logger.error('Failed to apply patch', { error, taskId })
+			const patchFile = path.join(this.workspacePath, `task-${taskId}.patch`)
+			
+			// Log patch content for debugging
+			let patchPreview = 'Unable to read patch content'
+			try {
+				const content = fs.readFileSync(patchFile, 'utf-8')
+				patchPreview = content.substring(0, 500) + (content.length > 500 ? '...' : '')
+			} catch (readError) {
+				// Ignore read errors
+			}
+
+			// Check workspace status
+			let workspaceStatus = 'Unknown'
+			try {
+				const status = await this.git.status()
+				workspaceStatus = `${status.files.length} files changed, current branch: ${status.current || 'unknown'}`
+			} catch (statusError) {
+				workspaceStatus = `Status check failed: ${statusError}`
+			}
+
+			// Clean up patch file
+			try {
+				if (fs.existsSync(patchFile)) {
+					fs.unlinkSync(patchFile)
+				}
+			} catch (cleanupError) {
+				// Ignore cleanup errors
+			}
+
+			logger.error('Failed to apply patch', { 
+				error, 
+				taskId, 
+				patchPreview,
+				workspaceStatus,
+				workspacePath: this.workspacePath
+			})
 			throw error
 		}
 	}
