@@ -9,7 +9,7 @@ const { BETTERSTACK_LOG_TOKEN } = process.env as Record<string, string>
 
 const _filename = fileURLToPath(import.meta.url)
 const _dirname = dirname(_filename)
-const logDirectory = join(_dirname, (['production', 'staging'].includes(process.env.NODE_ENV ?? '') ? './logs/' : '../../logs/'))
+const logDirectory = join(_dirname, '../../logs/')
 const logLevel = {
 	development: 'silly',
 	production: 'info',
@@ -31,20 +31,22 @@ const winstonLogger = createLogger({
 		_format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:SSS' }),
 		_format.json()
 	),
-	defaultMeta: { service: 'seedGPT' }, // Set a default metadata field
+	defaultMeta: { service: 'seedGPT' },
 	transports: [
-		new _transports.File({
-			filename: join(logDirectory, 'error.log'),
-			level: 'error'
-		}),
-		new _transports.File({
-			filename: join(logDirectory, 'info.log'),
-			level: 'info'
-		}),
-		new _transports.File({
-			filename: join(logDirectory, 'combined.log'),
-			level: 'silly'
-		}),
+		...(process.env.NODE_ENV !== 'production' ? [
+			new _transports.File({
+				filename: join(logDirectory, 'error.log'),
+				level: 'error'
+			}),
+			new _transports.File({
+				filename: join(logDirectory, 'info.log'),
+				level: 'info'
+			}),
+			new _transports.File({
+				filename: join(logDirectory, 'combined.log'),
+				level: 'silly'
+			})
+		] : []),
 		new _transports.Console({
 			format: _format.combine(
 				_format.colorize(),
