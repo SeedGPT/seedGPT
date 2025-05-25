@@ -44,7 +44,7 @@ try {
 	ciManager = new CIManager(octokit, cfg)
 } catch (error) {
 	logger.error('Failed to initialize system', { error })
-	throw new Error('Failed to initialize system')
+	throw error
 }
 
 async function buildContextMessages (): Promise<AnthropicMessage[]> {

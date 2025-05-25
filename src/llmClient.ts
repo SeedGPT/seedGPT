@@ -92,7 +92,7 @@ export class LLMClient {
 				error,
 				response: response.slice(0, 200)
 			})
-			throw new Error('Invalid JSON response from LLM')
+			throw error
 		}
 	}
 
