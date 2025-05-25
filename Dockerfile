@@ -8,6 +8,12 @@ FROM node:lts-bookworm-slim
 # Use a non-interactive frontend for debconf
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Install Git
+RUN apt-get update && \
+    apt-get install -y git && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Set working directory
 WORKDIR /app
 
