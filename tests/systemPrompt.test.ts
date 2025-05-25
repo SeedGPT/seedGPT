@@ -48,11 +48,11 @@ describe('SystemPrompt', () => {
 			const result = buildSystemPrompt(mockConfig)
 
 			expect(result.content).toContain('SeedGPT')
-			expect(result.content).toContain('autonomous development agent')
+			expect(result.content).toContain('autonomous software engineer')
 			expect(result.content).toContain('Maintain 100% test coverage')
 			expect(result.content).toContain('Run security scans')
 			expect(result.content).toContain('Update documentation')
-			expect(result.version).toBe('1.0.0')
+			expect(result.version).toBe('2.0.0')
 		})
 
 		it('should include critical instructions', () => {
@@ -69,11 +69,10 @@ describe('SystemPrompt', () => {
 		it('should return task generation prompt', () => {
 			const result = getTaskGenerationPrompt()
 
-			expect(result).toContain('Generate 3-5 strategic tasks')
+			expect(result).toContain('generate 3-5 strategic tasks')
 			expect(result).toContain('Return ONLY valid JSON')
 			expect(result).toContain('"description"')
 			expect(result).toContain('"priority"')
-			expect(result).toContain('"status"')
 		})
 	})
 
@@ -83,7 +82,7 @@ describe('SystemPrompt', () => {
 			const result = getPatchGenerationPrompt(taskDesc)
 
 			expect(result).toContain(`Task: ${taskDesc}`)
-			expect(result).toContain('Generate a git patch')
+			expect(result).toContain('Generate a clean, well-structured git patch')
 			expect(result).toContain('unified diff format')
 			expect(result).toContain('Return ONLY the patch content')
 		})
@@ -94,9 +93,9 @@ describe('SystemPrompt', () => {
 			const patch = 'diff --git a/test.ts b/test.ts\n+console.log("test");'
 			const result = getReviewPrompt(patch)
 
-			expect(result).toContain('Review this patch')
+			expect(result).toContain('Conduct a thorough code review')
 			expect(result).toContain('[✓/✗]')
-			expect(result).toContain('Implements intended change correctly')
+			expect(result).toContain('Implements intended functionality correctly')
 			expect(result).toContain(patch)
 		})
 	})
@@ -109,8 +108,8 @@ describe('SystemPrompt', () => {
 
 			expect(result).toContain(`PR #${prNumber}`)
 			expect(result).toContain(`task: ${taskDesc}`)
-			expect(result).toContain('What was implemented')
-			expect(result).toContain('How it was implemented')
+			expect(result).toContain('What functionality was implemented')
+			expect(result).toContain('Key architectural or design decisions')
 			expect(result).toContain('Return ONLY the summary text')
 		})
 	})

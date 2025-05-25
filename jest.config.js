@@ -11,4 +11,5 @@ export default {
 	setupFilesAfterEnv: ['<rootDir>/dist/tests/setup.js'],
 	moduleDirectories: ['node_modules', '<rootDir>/dist'],
 	testTimeout: 10000,
+	transform: {}
 };

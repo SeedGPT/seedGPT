@@ -6,8 +6,11 @@ process.env.GITHUB_TOKEN = 'test-token'
 process.env.GITHUB_REPO_OWNER = 'test-owner'
 process.env.GITHUB_REPO_NAME = 'test-repo'
 
+globalThis.jest = jest
+
+const originalConsole = console
 global.console = {
-	...console,
+	...originalConsole,
 	log: jest.fn(),
 	debug: jest.fn(),
 	info: jest.fn(),
