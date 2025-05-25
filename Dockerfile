@@ -23,6 +23,8 @@ RUN useradd -m seedgpt_user
 # Copy package files and dist directory
 COPY dist/src/ ./
 COPY package*.json ./
+COPY agent-config.yaml ./
+COPY tasks.yaml ./
 
 # Create necessary directories
 RUN mkdir -p logs memory summaries workspace && \
