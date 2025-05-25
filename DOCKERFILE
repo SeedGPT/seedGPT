@@ -14,11 +14,11 @@ WORKDIR /app
 # Create user for security
 RUN useradd -m -s /bin/bash seedgpt_user
 
-# Copy package files first for better Docker layer caching
+# Copy package files and dist directory
 COPY package*.json ./
-COPY tsconfig.json ./
+COPY dist ./dist
 
-# Remove dev dependencies after build
+# Install production dependencies
 RUN npm ci --omit=dev
 
 # Create necessary directories
