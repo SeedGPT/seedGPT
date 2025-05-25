@@ -36,6 +36,10 @@ describe('SystemPrompt', () => {
 		ci: {
 			maxWaitMinutes: 30,
 			pollIntervalSeconds: 60
+		},
+		models: {
+			important: 'claude-2',
+			routine: 'claude-instant-100k'
 		}
 	}
 
