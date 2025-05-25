@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { join } from 'path'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 
 import { Logtail } from '@logtail/node'
 import { createLogger, format as _format, transports as _transports } from 'winston'
 
 const { BETTERSTACK_LOG_TOKEN } = process.env as Record<string, string>
 
-const _dirname = __dirname
+const _dirname = dirname(fileURLToPath(import.meta.url))
 const logDirectory = join(_dirname, (['production', 'staging'].includes(process.env.NODE_ENV ?? '') ? './logs/' : '../../logs/'))
 const logLevel = {
 	development: 'silly',

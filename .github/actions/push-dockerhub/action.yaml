@@ -27,5 +27,5 @@ runs:
         -   name: Build and push Docker image
             run: |
                 docker buildx create --use
-                docker buildx build --file Dockerfile --platform linux/arm64,linux/amd64 --push --tag ${{ inputs.username }}/seedGPT:${{ inputs.tag }} .
+                docker buildx build --file Dockerfile --platform linux/arm64,linux/amd64 --push --tag ${{ inputs.username }}/seedgpt:${{ inputs.tag }} .
             shell: bash
