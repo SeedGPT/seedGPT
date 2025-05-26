@@ -183,7 +183,6 @@
     complexity: complex
     failureCount: 0
 
-# Conversation Context Management Tasks
 - id: 15
   description: Implement session-based conversation persistence with automatic context restoration
   priority: high
@@ -213,44 +212,44 @@
     context: ["conversation threading", "parallel discussions", "context isolation"]
 
 - id: 17
-  description: Implement intelligent context compression and token optimization for long conversations
-  priority: high
+  description: Enhance intelligent context compression and token optimization for long conversations
+  priority: low
   status: pending
-  type: feature
-  estimatedEffort: medium
+  type: refactor
+  estimatedEffort: small
   createdAt: "2025-05-26T00:00:00.000Z"
   updatedAt: "2025-05-26T00:00:00.000Z"
   metadata:
-    impact: high
-    complexity: moderate
+    impact: medium
+    complexity: simple
     failureCount: 0
     context: ["token management", "context optimization", "memory efficiency"]
 
 - id: 18
-  description: Build milestone-based conversation summaries with key decision tracking
+  description: Enhance milestone-based conversation summaries with key decision tracking
   priority: medium
   status: pending
-  type: feature
-  estimatedEffort: medium
+  type: refactor
+  estimatedEffort: small
   createdAt: "2025-05-26T00:00:00.000Z"
   updatedAt: "2025-05-26T00:00:00.000Z"
   metadata:
     impact: medium
-    complexity: moderate
+    complexity: simple
     failureCount: 0
     context: ["conversation milestones", "decision tracking", "project summaries"]
 
 - id: 19
-  description: Create contextual file tracking system for conversation-relevant codebase changes
-  priority: medium
+  description: Enhance contextual file tracking system for conversation-relevant codebase changes
+  priority: low
   status: pending
-  type: feature
-  estimatedEffort: medium
+  type: refactor
+  estimatedEffort: small
   createdAt: "2025-05-26T00:00:00.000Z"
   updatedAt: "2025-05-26T00:00:00.000Z"
   metadata:
     impact: medium
-    complexity: moderate
+    complexity: simple
     failureCount: 0
     context: ["file tracking", "conversation context", "change monitoring"]
 
