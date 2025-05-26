@@ -1,7 +1,4 @@
-import { Logtail } from '@logtail/node'
 import { createLogger, format as _format, transports as _transports } from 'winston'
-
-const { BETTERSTACK_LOG_TOKEN } = process.env as Record<string, string>
 
 const logLevel = {
 	development: 'silly',
@@ -39,70 +36,60 @@ const winstonLogger = createLogger({
 	]
 })
 
-// Instantiate betterStackLogger lazily only in production/staging
-let betterStackLogger: Logtail | null = null
-
-// Helper to handle BetterStack logging non-blocking
-const logToBetterStackNonBlocking = (
-	level: 'error' | 'warn' | 'info' | 'debug',
-	message: string,
+// Helper to log context that would have gone to BetterStack for debugging
+const logContextForDebugging = (
+	originalLevel: 'error' | 'warn' | 'info' | 'debug',
+	originalMessage: string,
 	context?: Record<string, any>
 ): void => {
-	if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'staging') {
-		return
-	}
-
-	if (!betterStackLogger) {
-		betterStackLogger = new Logtail(BETTERSTACK_LOG_TOKEN)
-	}
-
-	// Sanitize context, especially Error objects
-	let sanitizedContext = context
-	if (context?.error instanceof Error) {
-		sanitizedContext = { ...context }
-		const err = context.error
-		sanitizedContext.error = {
-			message: err.message,
-			stack: err.stack,
-			name: err.name
+	if (context) {
+		let sanitizedContext = { ...context } // Clone to avoid modifying original context if it's reused
+		if (context.error instanceof Error) {
+			const err = context.error
+			sanitizedContext.error = {
+				message: err.message,
+				stack: err.stack,
+				name: err.name
+			}
 		}
+		// The original message is already logged by the primary winston call (e.g., winstonLogger.error)
+		// This logs the context object that would have been sent to BetterStack.
+		winstonLogger.debug(
+			`[Context for ${originalLevel} log ('${originalMessage.substring(0, 50)}${originalMessage.length > 50 ? '...' : ''}')]`,
+			sanitizedContext
+		)
 	}
-
-	// Use a non-blocking approach with .catch()
-	betterStackLogger[level](message, sanitizedContext).catch((error) => {
-		// Log BetterStack errors to Winston to avoid infinite loops
-		winstonLogger.error(`Error logging to BetterStack: ${error instanceof Error ? error.toString() : String(error)}`, { error })
-	})
 }
 
 const logger = {
 	error: (message: string, context?: Record<string, any>) => {
 		winstonLogger.error(message, context)
-		logToBetterStackNonBlocking('error', message, context)
+		logContextForDebugging('error', message, context)
 	},
 	warn: (message: string, context?: Record<string, any>) => {
 		winstonLogger.warn(message, context)
-		logToBetterStackNonBlocking('warn', message, context)
+		logContextForDebugging('warn', message, context)
 	},
 	info: (message: string, context?: Record<string, any>) => {
 		winstonLogger.info(message, context)
-		logToBetterStackNonBlocking('info', message, context)
+		logContextForDebugging('info', message, context)
 	},
 	http: (message: string, context?: Record<string, any>) => {
 		winstonLogger.http(message, context)
-		logToBetterStackNonBlocking('debug', message, context)
+		// Retain original mapping: http, verbose, debug, silly logs went to BetterStack as 'debug'
+		logContextForDebugging('debug', message, context)
 	},
 	verbose: (message: string, context?: Record<string, any>) => {
 		winstonLogger.verbose(message, context)
-		logToBetterStackNonBlocking('debug', message, context)
+		logContextForDebugging('debug', message, context)
 	},
 	debug: (message: string, context?: Record<string, any>) => {
 		winstonLogger.debug(message, context)
-		logToBetterStackNonBlocking('debug', message, context)
+		logContextForDebugging('debug', message, context)
 	},
 	silly: (message: string, context?: Record<string, any>) => {
 		winstonLogger.silly(message, context)
-		logToBetterStackNonBlocking('debug', message, context)
+		logContextForDebugging('debug', message, context)
 	}
 }
 
