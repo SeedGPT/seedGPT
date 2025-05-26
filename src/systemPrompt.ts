@@ -80,6 +80,13 @@ REQUIREMENTS:
 - Add input validation where appropriate
 - Make code self-documenting through clear structure
 
+PATCH FORMAT REQUIREMENTS:
+- Use standard unified diff format (git patch)
+- No trailing whitespace on any lines
+- Clean line endings (LF only)
+- Accurate line numbers and context
+- Include proper file paths
+
 Return ONLY the patch content in unified diff format - no markdown, explanations, or additional text.`
 }
 

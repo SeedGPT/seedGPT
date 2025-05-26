@@ -41,16 +41,15 @@ export class LLMClient {
 			throw error
 		}
 	}
-
 	extractCodeFromResponse (response: string): string {
 		const diffMatch = response.match(/```diff\s*([\s\S]*?)\s*```/)
 		if (diffMatch) {
-			return diffMatch[1].trim()
+			return this.cleanPatch(diffMatch[1])
 		}
 
 		const codeMatch = response.match(/```[\w]*\s*([\s\S]*?)\s*```/)
 		if (codeMatch) {
-			return codeMatch[1].trim()
+			return this.cleanPatch(codeMatch[1])
 		}
 
 		const lines = response.split('\n')
@@ -61,14 +60,24 @@ export class LLMClient {
 		)
 
 		if (diffStartIndex !== -1) {
-			return lines.slice(diffStartIndex).join('\n').trim()
+			const patchLines = lines.slice(diffStartIndex)
+			return this.cleanPatch(patchLines.join('\n'))
 		}
 
 		if (response.includes('@@') || response.includes('+++') || response.includes('---')) {
-			return response.trim()
+			return this.cleanPatch(response)
 		}
 
 		throw new Error('No valid code/patch found in LLM response')
+	}
+
+	private cleanPatch(patch: string): string {
+		return patch
+			.split('\n')
+			.map(line => line.trimEnd()) // Remove trailing whitespace
+			.join('\n')
+			.trim() // Remove leading/trailing empty lines
+			.replace(/\n+$/, '\n') // Ensure single trailing newline
 	}
 
 	extractJsonFromResponse (response: string): unknown[] {

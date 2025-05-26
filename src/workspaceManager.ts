@@ -52,13 +52,20 @@ export class WorkspaceManager {
 			await this.cloneRepository()
 		}
 	}
-
 	private async cloneRepository (): Promise<void> {
 		fs.mkdirSync(this.workspacePath, { recursive: true })
 
-		const repoUrl = `https://github.com/${process.env.GITHUB_REPO_OWNER}/${process.env.GITHUB_REPO_NAME}.git`
+		const token = process.env.GITHUB_TOKEN!
+		const owner = process.env.GITHUB_REPO_OWNER!
+		const repo = process.env.GITHUB_REPO_NAME!
+		const repoUrl = `https://${token}@github.com/${owner}/${repo}.git`
+		
 		await this.git.clone(repoUrl, this.workspacePath)
 		await this.git.cwd(this.workspacePath)
+
+		// Configure git with credentials for future operations
+		await this.git.addConfig('user.name', 'SeedGPT Agent')
+		await this.git.addConfig('user.email', 'seedgpt@autonomous.dev')
 
 		logger.info('Repository cloned to workspace')
 	}
@@ -117,21 +124,116 @@ export class WorkspaceManager {
 		}
 	}
 
+	private sanitizePatch(patchContent: string): string {
+		return patchContent
+			.split('\n')
+			.map(line => line.trimEnd()) // Remove trailing whitespace
+			.join('\n')
+			.replace(/\n+$/, '\n') // Ensure single trailing newline
+	}
+
+	private async tryApplyPatchMethods(patchContent: string, taskId: number): Promise<void> {
+		const sanitizedPatch = this.sanitizePatch(patchContent)
+		const patchFile = path.join(this.workspacePath, `task-${taskId}.patch`)
+		
+		try {
+			// Method 1: Try with --index (staged)
+			fs.writeFileSync(patchFile, sanitizedPatch)
+			await this.git.raw(['apply', '--index', patchFile])
+			return
+		} catch (error1) {
+			logger.debug('Failed to apply patch with --index, trying without', { taskId, error: error1 })
+			
+			try {
+				// Method 2: Try without --index (working directory only)
+				await this.git.raw(['apply', patchFile])
+				// Manually stage the changes
+				await this.git.add('.')
+				return
+			} catch (error2) {
+				logger.debug('Failed to apply patch normally, trying with --whitespace=fix', { taskId, error: error2 })
+				
+				try {
+					// Method 3: Try with whitespace fixing
+					await this.git.raw(['apply', '--whitespace=fix', patchFile])
+					await this.git.add('.')
+					return
+				} catch (error3) {
+					logger.debug('Failed to apply patch with whitespace fix, trying manual application', { taskId, error: error3 })
+					
+					// Method 4: Manual file application as fallback
+					await this.manuallyApplyPatch(sanitizedPatch, taskId)
+					return
+				}
+			}
+		}
+	}
+
+	private async manuallyApplyPatch(patchContent: string, taskId: number): Promise<void> {
+		const lines = patchContent.split('\n')
+		let currentFile: string | null = null
+		let fileChanges: Map<string, string[]> = new Map()
+		
+		for (const line of lines) {
+			if (line.startsWith('diff --git')) {
+				const match = line.match(/diff --git a\/(.+) b\/(.+)/)
+				if (match) {
+					currentFile = match[2]
+				}
+			} else if (line.startsWith('+++')) {
+				const match = line.match(/\+\+\+ b\/(.+)/)
+				if (match) {
+					currentFile = match[1]
+					if (currentFile !== '/dev/null' && !fileChanges.has(currentFile)) {
+						fileChanges.set(currentFile, [])
+					}
+				}
+			} else if (line.startsWith('+') && !line.startsWith('+++') && currentFile && currentFile !== '/dev/null') {
+				const content = line.substring(1)
+				fileChanges.get(currentFile)?.push(content)
+			}
+		}
+		
+		// Apply changes to files
+		for (const [filePath, newLines] of fileChanges) {
+			const fullPath = path.join(this.workspacePath, filePath)
+			const dir = path.dirname(fullPath)
+			
+			if (!fs.existsSync(dir)) {
+				fs.mkdirSync(dir, { recursive: true })
+			}
+			
+			// For new files, just write the content
+			if (!fs.existsSync(fullPath)) {
+				fs.writeFileSync(fullPath, newLines.join('\n') + '\n')
+			}
+		}
+		
+		await this.git.add('.')
+		logger.info('Applied patch manually', { taskId, filesChanged: fileChanges.size })
+	}
+
 	async applyPatch (patchContent: string, taskId: number): Promise<void> {
 		try {
-			const patchFile = path.join(this.workspacePath, `task-${taskId}.patch`)
-			fs.writeFileSync(patchFile, patchContent)
-
 			logger.debug('Applying patch', { 
 				taskId, 
 				patchLength: patchContent.length,
 				patchPreview: patchContent.substring(0, 200) + (patchContent.length > 200 ? '...' : '')
 			})
 
-			const result = await this.git.raw(['apply', '--index', patchFile])
-			fs.unlinkSync(patchFile)
+			await this.tryApplyPatchMethods(patchContent, taskId)
+			
+			// Clean up patch file
+			const patchFile = path.join(this.workspacePath, `task-${taskId}.patch`)
+			try {
+				if (fs.existsSync(patchFile)) {
+					fs.unlinkSync(patchFile)
+				}
+			} catch (cleanupError) {
+				// Ignore cleanup errors
+			}
 
-			logger.debug('Patch applied successfully', { taskId, gitResult: result })
+			logger.debug('Patch applied successfully', { taskId })
 		} catch (error) {
 			const patchFile = path.join(this.workspacePath, `task-${taskId}.patch`)
 			
@@ -172,11 +274,20 @@ export class WorkspaceManager {
 			throw error
 		}
 	}
-
 	async commitAndPush (taskId: number, description: string, branchName: string): Promise<void> {
 		try {
 			await this.git.add('.')
 			await this.git.commit(`Task #${taskId}: ${description}`)
+			
+			// Set up authenticated remote URL for push
+			const token = process.env.GITHUB_TOKEN!
+			const owner = process.env.GITHUB_REPO_OWNER!
+			const repo = process.env.GITHUB_REPO_NAME!
+			const authUrl = `https://${token}@github.com/${owner}/${repo}.git`
+			
+			await this.git.removeRemote(this.cfg.git.remoteName).catch(() => {})
+			await this.git.addRemote(this.cfg.git.remoteName, authUrl)
+			
 			await this.git.push(['-u', this.cfg.git.remoteName, branchName])
 
 			logger.info('Changes committed and pushed', { taskId, branch: branchName })
@@ -185,12 +296,20 @@ export class WorkspaceManager {
 			throw error
 		}
 	}
-
 	async cleanupBranch (branchName: string): Promise<void> {
 		try {
 			await this.syncWithRemote()
 
 			try {
+				// Set up authenticated remote URL for deletion
+				const token = process.env.GITHUB_TOKEN!
+				const owner = process.env.GITHUB_REPO_OWNER!
+				const repo = process.env.GITHUB_REPO_NAME!
+				const authUrl = `https://${token}@github.com/${owner}/${repo}.git`
+				
+				await this.git.removeRemote(this.cfg.git.remoteName).catch(() => {})
+				await this.git.addRemote(this.cfg.git.remoteName, authUrl)
+				
 				await this.git.push([this.cfg.git.remoteName, '--delete', branchName])
 			} catch (error) {
 				logger.debug('Remote branch already deleted or does not exist', { branch: branchName, error })
