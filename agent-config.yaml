@@ -21,7 +21,7 @@ ci:
   pollIntervalSeconds: 30
 
 models:
-  important: "claude-opus-4-20250514"  # For critical tasks: code generation, reviews, complex analysis
+  important: "claude-sonnet-4-20250514"  # For critical tasks: code generation, reviews, complex analysis
   routine: "claude-3-5-haiku-20241022"  # For routine tasks: summaries, documentation updates
 
 memory:
