@@ -1,15 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { dirname, join } from 'path'
-import { fileURLToPath } from 'url'
-
 import { Logtail } from '@logtail/node'
 import { createLogger, format as _format, transports as _transports } from 'winston'
 
 const { BETTERSTACK_LOG_TOKEN } = process.env as Record<string, string>
 
-const _filename = fileURLToPath(import.meta.url)
-const _dirname = dirname(_filename)
-const logDirectory = join(_dirname, '../../logs/')
 const logLevel = {
 	development: 'silly',
 	production: 'info',
@@ -33,20 +26,6 @@ const winstonLogger = createLogger({
 	),
 	defaultMeta: { service: 'seedGPT' },
 	transports: [
-		...(process.env.NODE_ENV !== 'production' ? [
-			new _transports.File({
-				filename: join(logDirectory, 'error.log'),
-				level: 'error'
-			}),
-			new _transports.File({
-				filename: join(logDirectory, 'info.log'),
-				level: 'info'
-			}),
-			new _transports.File({
-				filename: join(logDirectory, 'combined.log'),
-				level: 'silly'
-			})
-		] : []),
 		new _transports.Console({
 			format: _format.combine(
 				_format.colorize(),
