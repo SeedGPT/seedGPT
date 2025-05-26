@@ -127,25 +127,58 @@ async function runEvolutionCycle (): Promise<void> {
 			const contextMessages = await buildContextMessages()
 			const patchPrompt = getPatchGenerationPrompt(task.description)
 
+			logger.info('🔧 Generating initial patch...', { taskId: task.id })
 			let patch = await llmClient.generatePatch([
 				...contextMessages,
 				{ role: 'user', content: patchPrompt }
 			])
+			logger.debug('Generated patch preview', { 
+				taskId: task.id, 
+				patchLength: patch.length, 
+				patchPreview: patch.substring(0, 500) + (patch.length > 500 ? '...' : '')
+			})
 
 			const reviewPrompt = getReviewPrompt(patch)
+			logger.info('🔍 Generating code review...', { taskId: task.id })
 			const reviewFeedback = await llmClient.generateReview([
 				...contextMessages,
 				{ role: 'user', content: reviewPrompt }
 			])
+			logger.debug('Review feedback received', { 
+				taskId: task.id, 
+				feedbackLength: reviewFeedback.length,
+				feedbackPreview: reviewFeedback.substring(0, 300) + (reviewFeedback.length > 300 ? '...' : '')
+			})
 
 			if (reviewFeedback.includes('✗') || reviewFeedback.includes('NEEDS_WORK') || reviewFeedback.includes('REJECT')) {
-				logger.info('🔍 Review found issues, generating improved patch...')
+				logger.info('🔍 Review found issues, generating improved patch...', { taskId: task.id })
 				patch = await llmClient.generateCodeFix(patch, reviewFeedback, contextMessages)
+				logger.debug('Improved patch generated', { 
+					taskId: task.id, 
+					improvedPatchLength: patch.length, 
+					improvedPatchPreview: patch.substring(0, 500) + (patch.length > 500 ? '...' : '')
+				})
+			} else {
+				logger.info('✅ Review passed, proceeding with original patch', { taskId: task.id })
 			}
 
-			await workspaceManager.applyPatch(patch, task.id)
+			logger.info('📝 Applying patch to workspace...', { taskId: task.id })
+			try {
+				await workspaceManager.applyPatch(patch, task.id)
+				logger.info('✅ Patch applied successfully', { taskId: task.id })
+			} catch (patchError) {
+				logger.error('❌ Failed to apply patch', { 
+					taskId: task.id, 
+					error: patchError,
+					patchLength: patch.length,
+					patchContent: patch
+				})
+				throw patchError
+			}
 
+			logger.info('📤 Committing and pushing changes...', { taskId: task.id })
 			await workspaceManager.commitAndPush(task.id, task.description, branchName)
+			logger.info('✅ Changes committed and pushed', { taskId: task.id, branchName })
 
 			const pr = await octokit.pulls.create({
 				owner: process.env.GITHUB_REPO_OWNER!,
