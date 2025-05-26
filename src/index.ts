@@ -19,7 +19,7 @@ import { loadConfig, loadTasks, saveTasks } from './taskManager.js'
 import { AnthropicMessage, Config, type Task } from './types.js'
 import { WorkspaceManager } from './workspaceManager.js'
 
-const requiredEnvVars = ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'GITHUB_REPO_OWNER', 'GITHUB_REPO_NAME']
+const requiredEnvVars = ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'GITHUB_REPO_OWNER', 'GITHUB_REPO_NAME', 'BETTERSTACK_LOG_TOKEN', 'NODE_ENV']
 for (const envVar of requiredEnvVars) {
 	const value = process.env[envVar]
 	if (value == null || value === '') {
