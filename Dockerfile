@@ -37,8 +37,8 @@ USER seedgpt_user
 RUN npm ci --omit=dev
 
 # Configure Git for the user (required for git operations)
-RUN git config --global user.email "seedgpt@autonomous.dev" && \
-    git config --global user.name "SeedGPT Agent" && \
+RUN git config --global user.email "seedgpt@gmail.com" && \
+    git config --global user.name "SeedGPT" && \
     git config --global init.defaultBranch main
 
 # Command to run the application
