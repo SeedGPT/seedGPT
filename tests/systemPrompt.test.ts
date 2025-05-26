@@ -52,7 +52,7 @@ describe('SystemPrompt', () => {
 			expect(result.content).toContain('Maintain 100% test coverage')
 			expect(result.content).toContain('Run security scans')
 			expect(result.content).toContain('Update documentation')
-			expect(result.version).toBe('2.0.0')
+			expect(result.version).toBe('2.0.1')
 		})
 		it('should include critical instructions', () => {
 			const result = buildSystemPrompt(mockConfig)
