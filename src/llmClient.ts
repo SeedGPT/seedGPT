@@ -17,29 +17,51 @@ export class LLMClient {
 		this.cfg = cfg
 		this.systemPrompt = buildSystemPrompt(cfg).content
 	}
-
 	async generateResponse (messages: AnthropicMessage[], useImportantModel = false): Promise<string> {
-		try {
-			const model = useImportantModel ? this.cfg.models.important : this.cfg.models.routine
+		const maxRetries = 5
+		const baseDelay = 2000
+		
+		for (let attempt = 1; attempt <= maxRetries; attempt++) {
+			try {
+				const model = useImportantModel ? this.cfg.models.important : this.cfg.models.routine
 
-			const resp = await this.anthropic.messages.create({
-				model,
-				max_tokens: 4096,
-				system: this.systemPrompt,
-				messages
-			})
+				const resp = await this.anthropic.messages.create({
+					model,
+					max_tokens: 4096,
+					system: this.systemPrompt,
+					messages
+				})
 
-			const content = resp.content[0].type === 'text' ? resp.content[0].text : ''
+				const content = resp.content[0].type === 'text' ? resp.content[0].text : ''
 
-			if (!content.trim()) {
-				throw new Error('Empty response from LLM')
+				if (!content.trim()) {
+					throw new Error('Empty response from LLM')
+				}
+
+				if (attempt > 1) {
+					logger.info(`LLM request succeeded after ${attempt} attempts`)
+				}
+
+				return content
+			} catch (error: any) {
+				const isRetryable = error.status === 529 || error.status === 503 || error.status === 502
+				const isLastAttempt = attempt === maxRetries
+
+				if (isRetryable && !isLastAttempt) {
+					const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000
+					logger.warn(`LLM request failed (attempt ${attempt}/${maxRetries}), retrying in ${Math.round(delay)}ms`, { 
+						error: { status: error.status, message: error.message }
+					})
+					await new Promise(resolve => setTimeout(resolve, delay))
+					continue
+				}
+
+				logger.error('LLM request failed', { error, attempt, maxRetries })
+				throw error
 			}
-
-			return content
-		} catch (error) {
-			logger.error('LLM request failed', { error })
-			throw error
 		}
+		
+		throw new Error('Should not reach here')
 	}
 	extractCodeFromResponse (response: string): string {
 		const diffMatch = response.match(/```diff\s*([\s\S]*?)\s*```/)

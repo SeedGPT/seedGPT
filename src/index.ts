@@ -239,17 +239,51 @@ This PR will be automatically merged upon CI success.`
 				saveTasks(cfg.files.tasks, tasks)
 				await workspaceManager.cleanupBranch(branchName)
 				setTimeout(runEvolutionCycle, 60000)
+			}		} catch (error) {
+			const isTransientError = error instanceof Error && (
+				error.message.includes('529') || 
+				error.message.includes('overloaded') ||
+				error.message.includes('503') ||
+				error.message.includes('502')
+			)
+			
+			if (isTransientError) {
+				logger.warn('Transient API error encountered, retrying with backoff', { 
+					error: { message: error.message, status: (error as any).status },
+					taskId: task.id 
+				})
+				task.status = 'pending'
+				saveTasks(cfg.files.tasks, tasks)
+				await workspaceManager.cleanupBranch(branchName)
+				
+				const backoffDelay = Math.min(300000, 30000 * Math.pow(2, Math.random()))
+				setTimeout(runEvolutionCycle, backoffDelay)
+			} else {
+				logger.error('Task execution failed', { error, taskId: task.id })
+				task.status = 'pending'
+				saveTasks(cfg.files.tasks, tasks)
+				await workspaceManager.cleanupBranch(branchName)
+				setTimeout(runEvolutionCycle, 30000)
 			}
-		} catch (error) {
-			logger.error('Task execution failed', { error, taskId: task.id })
-			task.status = 'pending'
-			saveTasks(cfg.files.tasks, tasks)
-			await workspaceManager.cleanupBranch(branchName)
-			setTimeout(runEvolutionCycle, 30000)
 		}
 	} catch (error) {
-		logger.error('Evolution cycle failed', { error })
-		setTimeout(runEvolutionCycle, 30000)
+		const isTransientError = error instanceof Error && (
+			error.message.includes('529') || 
+			error.message.includes('overloaded') ||
+			error.message.includes('503') ||
+			error.message.includes('502')
+		)
+		
+		if (isTransientError) {
+			logger.warn('Transient API error in evolution cycle, retrying with extended backoff', { 
+				error: { message: error.message, status: (error as any).status }
+			})
+			const backoffDelay = Math.min(600000, 60000 * Math.pow(2, Math.random()))
+			setTimeout(runEvolutionCycle, backoffDelay)
+		} else {
+			logger.error('Evolution cycle failed', { error })
+			setTimeout(runEvolutionCycle, 30000)
+		}
 	}
 }
 
