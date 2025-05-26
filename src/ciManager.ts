@@ -65,7 +65,7 @@ export class CIManager {
 		logger.warn(`CI monitoring timed out for PR #${prNumber}`)
 		return false
 	}
-	private async getCIStatus (prNumber: number): Promise<CIStatus> {
+	async getCIStatus (prNumber: number): Promise<CIStatus> {
 		const { data: pr } = await this.octokit.pulls.get({
 			owner: this.owner,
 			repo: this.repo,
@@ -184,7 +184,7 @@ export class CIManager {
 		}
 	}
 
-	private async getPRStatus (prNumber: number): Promise<PRStatus> {
+	async getPRStatus (prNumber: number): Promise<PRStatus> {
 		const { data: pr } = await this.octokit.pulls.get({
 			owner: this.owner,
 			repo: this.repo,
@@ -218,5 +218,104 @@ export class CIManager {
 
 	private sleep (ms: number): Promise<void> {
 		return new Promise(resolve => setTimeout(resolve, ms))
+	}
+
+	async getWorkflowLogs(prNumber: number): Promise<string> {
+		try {
+			const { data: pr } = await this.octokit.pulls.get({
+				owner: this.owner,
+				repo: this.repo,
+				pull_number: prNumber
+			})
+
+			const { data: workflows } = await this.octokit.actions.listWorkflowRunsForRepo({
+				owner: this.owner,
+				repo: this.repo,
+				head_sha: pr.head.sha,
+				per_page: 100
+			})
+
+			const relevantWorkflows = workflows.workflow_runs.filter(run => 
+				run.head_sha === pr.head.sha && 
+				run.event === 'pull_request' &&
+				run.name && (run.name === 'Development Testing CI' || run.name.includes('CI') || run.name.includes('Test'))
+			)
+
+			if (relevantWorkflows.length === 0) {
+				return 'No CI workflows found for this PR'
+			}
+
+			const failedWorkflows = relevantWorkflows.filter(run => 
+				run.status === 'completed' && (run.conclusion === 'failure' || run.conclusion === 'cancelled' || run.conclusion === 'timed_out')
+			)
+
+			if (failedWorkflows.length === 0) {
+				return 'No failed workflows found for this PR'
+			}
+
+			let allLogs = ''
+			
+			for (const workflow of failedWorkflows) {
+				try {
+					allLogs += `\n=== WORKFLOW: ${workflow.name || 'Unknown'} (${workflow.conclusion}) ===\n`
+					allLogs += `URL: ${workflow.html_url}\n`
+					allLogs += `Started: ${workflow.run_started_at}\n`
+					allLogs += `Completed: ${workflow.updated_at}\n\n`
+
+					const { data: jobs } = await this.octokit.actions.listJobsForWorkflowRun({
+						owner: this.owner,
+						repo: this.repo,
+						run_id: workflow.id
+					})
+
+					for (const job of jobs.jobs) {
+						if (job.conclusion === 'failure' || job.conclusion === 'cancelled') {
+							allLogs += `--- JOB: ${job.name} (${job.conclusion}) ---\n`
+							allLogs += `Started: ${job.started_at}\n`
+							allLogs += `Completed: ${job.completed_at}\n\n`
+
+							try {
+								const { data: logData } = await this.octokit.actions.downloadJobLogsForWorkflowRun({
+									owner: this.owner,
+									repo: this.repo,
+									job_id: job.id
+								})
+
+								if (typeof logData === 'string') {
+									const lines = logData.split('\n')
+									const errorLines = lines.filter(line => 
+										line.toLowerCase().includes('error') ||
+										line.toLowerCase().includes('fail') ||
+										line.toLowerCase().includes('✗') ||
+										line.toLowerCase().includes('×') ||
+										line.includes('FAIL') ||
+										line.includes('ERROR')
+									)
+
+									if (errorLines.length > 0) {
+										allLogs += 'ERROR LINES:\n'
+										allLogs += errorLines.slice(0, 50).join('\n') + '\n\n'
+									}
+
+									const lastLines = lines.slice(-100)
+									allLogs += 'LAST 100 LINES:\n'
+									allLogs += lastLines.join('\n') + '\n\n'
+								}
+							} catch (logError) {
+								allLogs += `Failed to fetch job logs: ${logError}\n\n`
+							}
+						}
+					}
+				} catch (workflowError) {
+					logger.error(`Failed to fetch logs for workflow ${workflow.id}`, { error: workflowError })
+					allLogs += `Failed to fetch logs for workflow ${workflow.name}: ${workflowError}\n\n`
+				}
+			}
+
+			return allLogs || 'No detailed logs available'
+		} catch (error) {
+			logger.error('Failed to fetch workflow logs', { error, prNumber })
+			return `Failed to fetch workflow logs: ${error}`
+		}
 	}
 }

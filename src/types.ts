@@ -79,6 +79,9 @@ export interface Task {
 		branchCount?: number;
 		lastAttempt?: string;
 		failureCount?: number;
+		ciFailureCount?: number;
+		iterationCount?: number;
+		workflowDecisions?: number;
 		blockedReason?: string;
 		context?: string[];
 		requiredTools?: string[];

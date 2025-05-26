@@ -10,6 +10,7 @@ import { BranchRecoveryManager } from './branchRecoveryManager.js'
 import { CIManager } from './ciManager.js'
 import { ContextManager } from './contextManager.js'
 import { DashboardManager } from './dashboardManager.js'
+import { EvolutionWorkflow, WorkflowDependencies } from './evolutionWorkflow.js'
 import { IntelligentTaskManager } from './intelligentTaskManager.js'
 import { LLMClient } from './llmClient.js'
 import { LLMTools } from './llmTools.js'
@@ -17,12 +18,7 @@ import logger from './logger.js'
 import { loadMemory, updateMemory, setWorkspaceManager as setMemoryWorkspaceManager } from './memory.js'
 import { appendProgress, setWorkspaceManager as setProgressWorkspaceManager } from './progressLogger.js'
 import { ResearchManager } from './researchManager.js'
-import {
-	getTaskGenerationPrompt,
-	getPatchGenerationPrompt,
-	getReviewPrompt,
-	getSummarizePrompt
-} from './systemPrompt.js'
+import { getTaskGenerationPrompt, getPatchGenerationPrompt, getReviewPrompt, getSummarizePrompt } from './systemPrompt.js'
 import { loadConfig, loadTasks, saveTasks, setWorkspaceManager } from './taskManager.js'
 import { AnthropicMessage, Config, Task } from './types.js'
 import { WorkspaceManager } from './workspaceManager.js'
@@ -51,6 +47,7 @@ let branchRecoveryManager: BranchRecoveryManager
 let dashboardManager: DashboardManager
 let llmTools: LLMTools
 let contextManager: ContextManager
+let evolutionWorkflow: EvolutionWorkflow
 
 try {
 	cfg = loadConfig('agent-config.yaml')
@@ -66,6 +63,19 @@ try {
 	dashboardManager = new DashboardManager(intelligentTaskManager, cfg, branchRecoveryManager)
 	llmTools = new LLMTools(branchRecoveryManager, workspaceManager)
 	contextManager = new ContextManager(workspaceManager)
+	
+	const workflowDeps: WorkflowDependencies = {
+		llmClient,
+		workspaceManager,
+		ciManager,
+		llmTools,
+		intelligentTaskManager,
+		contextManager,
+		branchRecoveryManager,
+		octokit,
+		cfg
+	}
+	evolutionWorkflow = new EvolutionWorkflow(workflowDeps)
 } catch (error) {
 	logger.error('Failed to initialize system', { error })
 	throw error
@@ -197,286 +207,21 @@ async function runEvolutionCycle(): Promise<void> {
 			setTimeout(runEvolutionCycle, 60000)
 			return
 		}
-
 		logger.info(`🛠 Working on Task #${task.id}: ${task.description}`)
 		task.status = 'in-progress'
 		saveTasks(cfg.files.tasks, tasks)
 
-		const branchName = await workspaceManager.createFeatureBranch(task.id)
-		try {
-			const contextMessages = await buildContextMessages(task.description)
-			const patchPrompt = getPatchGenerationPrompt(task.description)
-
-			logger.info('🔧 Generating initial patch...', { taskId: task.id })
-			let patch = await llmClient.generatePatch([
-				...contextMessages,
-				{ role: 'user', content: patchPrompt }
-			])
-
-			logger.debug('Generated patch preview', {
-				taskId: task.id,
-				patchLength: patch.length,
-				patchPreview: patch.substring(0, 500) + (patch.length > 500 ? '...' : '')
-			})
-
-			const reviewPrompt = getReviewPrompt(patch)
-			logger.info('🔍 Generating code review...', { taskId: task.id })
-
-			const reviewFeedback = await llmClient.generateReview([
-				...contextMessages,
-				{ role: 'user', content: reviewPrompt }
-			])
-
-			logger.debug('Review feedback received', {
-				taskId: task.id,
-				feedbackLength: reviewFeedback.length,
-				feedbackPreview: reviewFeedback.substring(0, 300) + (reviewFeedback.length > 300 ? '...' : '')
-			})
-
-			const parsedReview = parseCodeReview(reviewFeedback)
-			logger.debug('Parsed review results', {
-				taskId: task.id,
-				approved: parsedReview.approved,
-				score: parsedReview.score,
-				issuesCount: parsedReview.issues.length
-			})
-
-			if (!parsedReview.approved || parsedReview.issues.length > 0) {
-				logger.info('🔍 Review found issues, generating improved patch...', {
-					taskId: task.id,
-					issues: parsedReview.issues,
-					score: parsedReview.score
-				})
-				patch = await llmClient.generateCodeFix(patch, reviewFeedback, contextMessages)
-				logger.debug('Improved patch generated', {
-					taskId: task.id,
-					improvedPatchLength: patch.length,
-					improvedPatchPreview: patch.substring(0, 500) + (patch.length > 500 ? '...' : '')
-				})
-			} else {
-				logger.info('✅ Review passed, proceeding with original patch', { taskId: task.id })
-			}
-
-			logger.info('📝 Applying patch to workspace...', { taskId: task.id })
-			try {
-				await workspaceManager.applyPatch(patch, task.id)
-				logger.info('✅ Patch applied successfully', { taskId: task.id })
-			} catch (patchError) {
-				logger.error('❌ Failed to apply patch', {
-					taskId: task.id,
-					error: patchError,
-					patchLength: patch.length,
-					patchContent: patch
-				})
-				throw patchError
-			}
-
-			logger.info('📤 Committing and pushing changes...', { taskId: task.id })
-			await workspaceManager.commitAndPush(task.id, task.description, branchName)
-			logger.info('✅ Changes committed and pushed', { taskId: task.id, branchName })
-
-			const pr = await octokit.pulls.create({
-				owner: process.env.GITHUB_REPO_OWNER!,
-				repo: process.env.GITHUB_REPO_NAME!,
-				head: branchName,
-				base: cfg.git.mainBranch,
-				title: `🔨 Task #${task.id}: ${task.description}`,
-				body: `Autonomous implementation of task #${task.id}
-
-## Task Description
-${task.description}
-
-## Implementation
-This PR was created autonomously and follows software engineering best practices:
-- Clean, maintainable code with proper TypeScript types
-- Comprehensive error handling and logging
-- Security scanning and vulnerability fixes applied
-- Code review process completed before submission
-
-This PR will be automatically merged upon CI success.`
-			})
-
-			logger.info(`📬 PR #${pr.data.number} created: ${pr.data.html_url}`)
-
-			const merged = await ciManager.waitForCIAndMerge(pr.data.number)
-
-			if (merged) {
-				logger.info(`🎉 PR #${pr.data.number} successfully merged`)
-
-				const summaryPrompt = getSummarizePrompt(pr.data.number.toString(), task.description)
-				const summary = await llmClient.generateSummary([
-					...contextMessages,
-					{ role: 'user', content: summaryPrompt }
-				])
-
-				appendProgress(cfg.files.progress, summary, {
-					taskId: task.id,
-					prNumber: pr.data.number
-				})
-
-				await updateMemory(cfg.memory, summary, {
-					taskId: task.id,
-					prNumber: pr.data.number,
-					importance: 'medium'
-				})
-
-				task.status = 'done'
-				saveTasks(cfg.files.tasks, tasks)
-
-				await workspaceManager.cleanupBranch(branchName)
-
-				logger.info(`✅ Task #${task.id} completed and merged. System will restart automatically...`)
-
-				throw new Error('RESTART_REQUIRED')
-			} else {
-				logger.error(`❌ PR #${pr.data.number} failed CI or could not be merged`)
-				task.status = 'pending'
-				saveTasks(cfg.files.tasks, tasks)
-				await workspaceManager.cleanupBranch(branchName)
-				setTimeout(runEvolutionCycle, 60000)
-			}
-		} catch (error) {
-			logger.error('Task execution failed', { error, taskId: task.id })
-
-			task.metadata = task.metadata || {}
-			task.metadata.failureCount = (task.metadata.failureCount || 0) + 1
-			task.metadata.lastAttempt = new Date().toISOString()
-
-			const contextMessages = await buildContextMessages(task.description)
-			const recoveryPrompt = `Task #${task.id} failed with error: ${error}
-
-Failure count: ${task.metadata.failureCount}
-Task description: ${task.description}
-Branch: ${branchName}
-
-Available tools:
-- NUKE_BRANCH: <reason> - Reset branch to clean state
-- RESTART_TASK: <reason> - Retry task from beginning  
-- BLOCK_TASK: <reason> - Mark task as blocked
-- EXECUTE_SCRIPT: <script_path> - <reason> - Run a script file
-- RUN_TESTS: [test_pattern] - <reason> - Execute test suites
-- INSTALL_PACKAGE: <package_name> - <reason> - Add dependencies
-- BUILD_PROJECT: <reason> - Compile/build the project
-- SEARCH_CODEBASE: <query> - <reason> - Search through codebase for patterns
-- ANALYZE_CAPABILITIES: <reason> - Examine current capabilities and system state
-- INSPECT_STRUCTURE: <file_path> - <reason> - Analyze structure of specific code files
-
-Analyze the error and decide the best recovery action. Respond with the tool command and reason.`
-
-			try {
-				const recoveryResponse = await llmClient.generateResponse([
-					...contextMessages,
-					{ role: 'user', content: recoveryPrompt }
-				])
-
-				const toolRequest = llmTools.parseToolRequest(recoveryResponse)
-				if (toolRequest) {
-					let toolResult
-
-					switch (toolRequest.tool) {
-						case 'NUKE_BRANCH':
-							toolResult = await llmTools.nukeBranch(task, branchName, toolRequest.reason)
-							break
-						case 'RESTART_TASK':
-							toolResult = await llmTools.restartTask(task, toolRequest.reason)
-							break
-						case 'BLOCK_TASK':
-							toolResult = await llmTools.blockTask(task, toolRequest.reason)
-							break
-						case 'EXECUTE_SCRIPT':
-							toolResult = await llmTools.executeScript(toolRequest.args!, toolRequest.reason, task)
-							break
-						case 'RUN_TESTS':
-							toolResult = await llmTools.runTests(toolRequest.args, toolRequest.reason, task)
-							break
-						case 'INSTALL_PACKAGE':
-							toolResult = await llmTools.installPackage(toolRequest.args!, toolRequest.reason, task)
-														break
-						case 'BUILD_PROJECT':
-							toolResult = await llmTools.buildProject(toolRequest.reason, task)
-							break
-						case 'SEARCH_CODEBASE':
-							toolResult = await llmTools.searchCodebase(toolRequest.args!, toolRequest.reason, task)
-							break
-						case 'ANALYZE_CAPABILITIES':
-							toolResult = await llmTools.analyzeCurrentCapabilities(toolRequest.reason, task)
-							break
-						case 'INSPECT_STRUCTURE':
-							toolResult = await llmTools.inspectCodeStructure(toolRequest.args!, toolRequest.reason, task)
-							break
-						default:
-							task.status = 'pending'
-							toolResult = { success: true, message: 'Task reset to pending' }
-					}					logger.info('LLM recovery action completed', {
-						taskId: task.id,
-						tool: toolRequest.tool,
-						result: toolResult
-					})
-
-					if (toolResult.output && (toolRequest.tool === 'EXECUTE_SCRIPT' || toolRequest.tool === 'RUN_TESTS' || toolRequest.tool === 'INSTALL_PACKAGE' || toolRequest.tool === 'BUILD_PROJECT')) {
-						const followupPrompt = getToolExecutionFollowupPrompt(
-							toolRequest.tool,
-							toolRequest.args || toolRequest.tool,
-							toolRequest.reason,
-							toolResult
-						)
-
-						const followupResponse = await llmClient.generateResponse([
-							...contextMessages,
-							{ role: 'user', content: followupPrompt }
-						])
-
-						const followupRequest = llmTools.parseToolRequest(followupResponse)
-						if (followupRequest) {
-							logger.info('LLM requested follow-up action', {
-								taskId: task.id,
-								followupTool: followupRequest.tool,
-								followupReason: followupRequest.reason
-							})
-							
-							switch (followupRequest.tool) {
-								case 'EXECUTE_SCRIPT':
-									await llmTools.executeScript(followupRequest.args!, followupRequest.reason, task)
-									break
-								case 'RUN_TESTS':
-									await llmTools.runTests(followupRequest.args, followupRequest.reason, task)
-									break
-								case 'INSTALL_PACKAGE':
-									await llmTools.installPackage(followupRequest.args!, followupRequest.reason, task)
-									break
-								case 'BUILD_PROJECT':
-									await llmTools.buildProject(followupRequest.reason, task)
-									break
-								case 'NUKE_BRANCH':
-									await llmTools.nukeBranch(task, branchName, followupRequest.reason)
-									break
-								case 'RESTART_TASK':
-									await llmTools.restartTask(task, followupRequest.reason)
-									break
-								case 'BLOCK_TASK':
-									await llmTools.blockTask(task, followupRequest.reason)
-									break
-							}						} else if (followupResponse.includes('TASK_COMPLETE')) {
-							task.status = 'done'
-							logger.info('LLM indicated task completion', { taskId: task.id })
-						} else if (followupResponse.includes('ANALYZE_OUTPUT')) {
-							task.status = 'pending'
-							logger.info('LLM requested output analysis, task remains pending', { taskId: task.id })
-						}
-					}
-				} else {
-					task.status = 'pending'
-					logger.info('No specific tool requested, defaulting to pending status')
-				}
-			} catch (recoveryError) {
-				logger.error('LLM recovery failed, using fallback logic', { recoveryError, taskId: task.id })
-				task.status = 'pending'
-			}
-
+		const success = await evolutionWorkflow.executeTask(task)
+		
+		if (success) {
+			logger.info(`✅ Task #${task.id} completed successfully`)
 			saveTasks(cfg.files.tasks, tasks)
-			await workspaceManager.cleanupBranch(branchName)
-			setTimeout(runEvolutionCycle, 30000)
-		}	} catch (error) {
+			throw new Error('RESTART_REQUIRED')
+		} else {
+			logger.warn(`❌ Task #${task.id} failed, will retry later`)
+			saveTasks(cfg.files.tasks, tasks)
+			setTimeout(runEvolutionCycle, 60000)
+		}} catch (error) {
 		if (error instanceof Error && error.message === 'RESTART_REQUIRED') {
 			logger.info('🔄 System restart required after successful merge. Terminating process...')
 			
