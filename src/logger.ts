@@ -3,6 +3,8 @@ import { createLogger, format as _format, transports as _transports } from 'wins
 
 const { BETTERSTACK_LOG_TOKEN } = process.env as Record<string, string>
 
+console.log('BETTERSTACK_LOG_TOKEN:', BETTERSTACK_LOG_TOKEN)
+
 const logLevel = {
 	development: 'silly',
 	production: 'info',
@@ -53,6 +55,15 @@ const logToBetterStackNonBlocking = (
 	}
 
 	if (!betterStackLogger) {
+		// Diagnostic log for the token
+		if (BETTERSTACK_LOG_TOKEN) {
+			const tokenPrefix = BETTERSTACK_LOG_TOKEN.substring(0, 5);
+			const tokenSuffix = BETTERSTACK_LOG_TOKEN.substring(BETTERSTACK_LOG_TOKEN.length - 5);
+			const tokenLength = BETTERSTACK_LOG_TOKEN.length;
+			winstonLogger.debug(`Verifying BETTERSTACK_LOG_TOKEN: First5='${tokenPrefix}', Last5='${tokenSuffix}', Length=${tokenLength}`);
+		} else {
+			winstonLogger.warn('BETTERSTACK_LOG_TOKEN is not defined when attempting to create Logtail instance.');
+		}
 		betterStackLogger = new Logtail(BETTERSTACK_LOG_TOKEN)
 	}
 
