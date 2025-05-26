@@ -21,7 +21,22 @@ const winstonLogger = createLogger({
 				_format.colorize(),
 				_format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
 				_format.printf((logObject) => {
-					return `${logObject.timestamp} ${logObject.level}: ${logObject.message}`
+					let message = `${logObject.timestamp} ${logObject.level}: ${logObject.message}`
+					
+					// If there's additional context beyond service, timestamp, level, and message, show it
+					const contextKeys = Object.keys(logObject).filter(key => 
+						!['timestamp', 'level', 'message', 'service'].includes(key)
+					)
+					
+					if (contextKeys.length > 0) {
+						const context: Record<string, any> = {}
+						contextKeys.forEach(key => {
+							context[key] = logObject[key]
+						})
+						message += `\n    Context: ${JSON.stringify(context, null, 2).replace(/\n/g, '\n    ')}`
+					}
+					
+					return message
 				})
 			),
 			level: 'debug' // Console transport logs everything from debug level and above
@@ -45,10 +60,10 @@ const logContextForDebugging = (
 				name: err.name
 			}
 		}
-		// The original message is already logged by the primary winston call (e.g., winstonLogger.error)
-		// This logs the context object that would have been sent to BetterStack.
+		
+		// Log context directly with the winston logger, which will now format it properly
 		winstonLogger.debug(
-			`[Context for ${originalLevel} log ('${originalMessage.substring(0, 50)}${originalMessage.length > 50 ? '...' : ''}')]`,
+			`[Context for ${originalLevel} log: '${originalMessage.substring(0, 50)}${originalMessage.length > 50 ? '...' : ''}']`,
 			sanitizedContext
 		)
 	}
