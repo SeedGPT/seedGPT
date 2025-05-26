@@ -15,7 +15,7 @@
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.52.0",
 		"@logtail/node": "^0.5.5",
-		"@octokit/rest": "^21.1.1",
+		"@octokit/rest": "^22.0.0",
 		"js-yaml": "^4.1.0",
 		"simple-git": "^3.27.0",
 		"winston": "^3.17.0"
