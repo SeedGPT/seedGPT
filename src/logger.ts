@@ -1,12 +1,5 @@
 import { createLogger, format as _format, transports as _transports } from 'winston'
 
-const logLevel = {
-	development: 'silly',
-	production: 'info',
-	staging: 'info',
-	test: 'debug'
-}
-
 const winstonLogger = createLogger({
 	levels: {
 		error: 0,
@@ -31,7 +24,7 @@ const winstonLogger = createLogger({
 					return `${logObject.timestamp} ${logObject.level}: ${logObject.message}`
 				})
 			),
-			level: logLevel[process.env.NODE_ENV as keyof typeof logLevel] ?? 'info'
+			level: 'debug' // Console transport logs everything from debug level and above
 		})
 	]
 })
