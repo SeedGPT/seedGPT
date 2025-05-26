@@ -65,7 +65,6 @@ export class CIManager {
 		logger.warn(`CI monitoring timed out for PR #${prNumber}`)
 		return false
 	}
-
 	private async getCIStatus (prNumber: number): Promise<CIStatus> {
 		const { data: pr } = await this.octokit.pulls.get({
 			owner: this.owner,
@@ -73,63 +72,116 @@ export class CIManager {
 			pull_number: prNumber
 		})
 
-		const { data: checks } = await this.octokit.checks.listForRef({
+		const { data: workflows } = await this.octokit.actions.listWorkflowRunsForRepo({
 			owner: this.owner,
 			repo: this.repo,
-			ref: pr.head.sha
+			head_sha: pr.head.sha,
+			per_page: 100
+		})
+		const relevantWorkflows = workflows.workflow_runs.filter(run => 
+			run.head_sha === pr.head.sha && 
+			run.event === 'pull_request' &&
+			run.name && (run.name === 'Development Testing CI' || run.name.includes('CI') || run.name.includes('Test'))
+		)
+
+		if (relevantWorkflows.length === 0) {
+			logger.debug(`No workflows found for PR #${prNumber}, checking legacy checks/statuses`)
+			
+			const { data: checks } = await this.octokit.checks.listForRef({
+				owner: this.owner,
+				repo: this.repo,
+				ref: pr.head.sha
+			})
+
+			const { data: statuses } = await this.octokit.repos.listCommitStatusesForRef({
+				owner: this.owner,
+				repo: this.repo,
+				ref: pr.head.sha
+			})
+
+			if (checks.check_runs.length === 0 && statuses.length === 0) {
+				logger.warn(`No CI checks or workflows found for PR #${prNumber}`)
+				return { state: 'pending', description: 'Waiting for CI workflows to start' }
+			}
+
+			const checkStates = checks.check_runs.map(check => ({
+				state: check.status === 'completed'
+					? (check.conclusion === 'success' ? 'success' : 'failure')
+					: 'pending',
+				conclusion: check.conclusion,
+				description: check.output?.title ?? null
+			}))
+
+			const statusStates = statuses.map(status => ({
+				state: status.state as 'pending' | 'success' | 'failure' | 'error',
+				description: status.description ?? null
+			}))
+
+			const allStates = [...checkStates, ...statusStates]
+			
+			if (allStates.some(s => s.state === 'failure' || s.state === 'error')) {
+				const failedCheck = allStates.find(s => s.state === 'failure' || s.state === 'error')
+				return {
+					state: 'failure',
+					conclusion: (failedCheck && 'conclusion' in failedCheck && failedCheck.conclusion !== null) ?
+						failedCheck.conclusion as CIStatus['conclusion'] : null,
+					description: failedCheck?.description ?? null
+				}
+			}
+
+			if (allStates.some(s => s.state === 'pending')) {
+				return { state: 'pending' }
+			}
+
+			return { state: 'success' }
+		}
+		logger.debug(`Found ${relevantWorkflows.length} workflows for PR #${prNumber}`, {
+			workflows: relevantWorkflows.map(w => ({ name: w.name || 'Unknown', status: w.status, conclusion: w.conclusion }))
 		})
 
-		const { data: statuses } = await this.octokit.repos.listCommitStatusesForRef({
-			owner: this.owner,
-			repo: this.repo,
-			ref: pr.head.sha
-		})
+		const pendingWorkflows = relevantWorkflows.filter(run => 
+			run.status === 'queued' || run.status === 'in_progress' || run.status === 'waiting'
+		)
 
-		if (checks.check_runs.length === 0 && statuses.length === 0) {
+		const failedWorkflows = relevantWorkflows.filter(run => 
+			run.status === 'completed' && (run.conclusion === 'failure' || run.conclusion === 'cancelled' || run.conclusion === 'timed_out')
+		)
+
+		const successfulWorkflows = relevantWorkflows.filter(run => 
+			run.status === 'completed' && run.conclusion === 'success'
+		)
+		if (failedWorkflows.length > 0) {
+			const failedWorkflow = failedWorkflows[0]
+			logger.error(`Workflow failed for PR #${prNumber}`, {
+			workflowName: failedWorkflow.name,
+			conclusion: failedWorkflow.conclusion,
+			url: failedWorkflow.html_url
+		})
+		
+		return {
+				state: 'failure',
+				conclusion: failedWorkflow.conclusion as CIStatus['conclusion'],
+				description: `Workflow '${failedWorkflow.name || 'Unknown'}' ${failedWorkflow.conclusion}`,
+				target_url: failedWorkflow.html_url
+			}
+		}
+		if (pendingWorkflows.length > 0) {
+			return { 
+				state: 'pending', 
+				description: `${pendingWorkflows.length} workflow(s) still running: ${pendingWorkflows.map(w => w.name || 'Unknown').join(', ')}`
+			}
+		}
+		if (successfulWorkflows.length > 0 && relevantWorkflows.every(run => run.status === 'completed')) {
+			logger.info(`All workflows completed successfully for PR #${prNumber}`, {
+				completedWorkflows: successfulWorkflows.map(w => w.name || 'Unknown')
+			})
 			return { state: 'success' }
 		}
 
-		interface CheckState {
-			state: 'pending' | 'success' | 'failure' | 'error'
-			conclusion?: string | null
-			description?: string | null
+		return { 
+			state: 'pending', 
+			description: 'Waiting for workflow status to be determined'
 		}
-
-		interface StatusState {
-			state: 'pending' | 'success' | 'failure' | 'error'
-			description?: string | null
-		}
-
-		const checkStates: CheckState[] = checks.check_runs.map(check => ({
-			state: check.status === 'completed'
-				? (check.conclusion === 'success' ? 'success' : 'failure')
-				: 'pending',
-			conclusion: check.conclusion,
-			description: check.output?.title ?? null
-		}))
-
-		const statusStates: StatusState[] = statuses.map(status => ({
-			state: status.state as 'pending' | 'success' | 'failure' | 'error',
-			description: status.description ?? null
-		}))
-
-		const allStates = [...checkStates, ...statusStates]
-
-		if (allStates.some(s => s.state === 'failure' || s.state === 'error')) {
-			const failedCheck = allStates.find(s => s.state === 'failure' || s.state === 'error')
-			return {
-				state: 'failure',
-				conclusion: (failedCheck && 'conclusion' in failedCheck && failedCheck.conclusion !== null) ?
-					failedCheck.conclusion as CIStatus['conclusion'] : null,
-				description: failedCheck?.description ?? null
-			}
-		}
-
-		if (allStates.some(s => s.state === 'pending')) {
-			return { state: 'pending' }
-		}
-
-		return { state: 'success' }
 	}
 
 	private async getPRStatus (prNumber: number): Promise<PRStatus> {
