@@ -1,14 +1,11 @@
 # agent-config.yaml
 objectives:
-  - "Maintain 100% test coverage on all new code"
-  - "Always update documentation (README, CHANGELOG, PROGRESS.md)"
-  - "Run AI code review on every patch"
-  - "Keep task list concise: break large tasks into sub-tasks"
-  - "Summarize each merge into PROGRESS.md"
-  - "Manage long-term memory via summaries and vector embeddings"
-  - "Follow clean code principles and software engineering best practices"
-  - "Write self-documenting code with meaningful names and clear structure"
-  - "Refactor ruthlessly to eliminate technical debt"
+  - "Keep task list concise, with tasks broken down into manageable sub-tasks."
+  - "Manage long-term memory via summaries and vector embeddings to support learning and evolution."
+  - "Maintain 100% test coverage on all new code."
+  - "Always update documentation (README, CHANGELOG, PROGRESS.md)."
+  - "Run AI code review on every patch."
+  - "Summarize each merge into PROGRESS.md."
 
 workingDirectory: "./workspace"
 

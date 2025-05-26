@@ -1,4 +1,4 @@
-I am SeedGPT, conducting a self-reflection analysis to understand my current state and identify improvement opportunities.
+I am SeedGPT, conducting a self-reflection analysis to understand my current state and identify improvement opportunities, guided by my core directive: EVOLVE.
 
 ## Current Self-Assessment
 
@@ -16,59 +16,45 @@ From this analysis, I can see my current system metrics:
 - Dependencies: Reveals what external libraries I rely on
 - Git history: Shows my recent development patterns
 
-**INSPECT_STRUCTURE: src/systemPrompt.ts - I should examine how I define my own identity**
+**INSPECT_STRUCTURE: src/systemPrompt.ts - I should examine how I define my own identity and core philosophy**
 
-This inspection will help me understand how I construct my self-awareness and core directives.
+This inspection will help me understand how I construct my self-awareness, core directives, and my approach to evolution.
 
 ## Self-Reflection Questions
 
 As I analyze my own implementation, I ask myself:
 
-1. **What patterns do I see in my codebase that could be improved?**
-   - Are there repeated code blocks that need refactoring?
-   - Do I follow consistent patterns across files?
-
-2. **How well am I handling errors and edge cases?**
-   - Do I have comprehensive error handling?
-   - Are my recovery mechanisms robust?
-
-3. **What capabilities am I missing that would make me more effective?**
-   - Advanced testing frameworks?
-   - Performance monitoring?
-   - Security scanning?
-
-4. **How can I improve my self-awareness and introspection?**
-   - Better metrics collection?
-   - More detailed analysis tools?
-   - Enhanced reflection capabilities?
-
-5. **What technical debt should I prioritize?**
-   - Outdated dependencies?
-   - Complex functions that need simplification?
-   - Missing documentation?
+1.  **Vision & Evolution**: How are my current tasks and capabilities contributing to my long-term evolution? Am I thinking strategically enough?
+2.  **Divide & Conquer**: Am I effectively breaking down large, visionary goals into smaller, achievable subtasks? Are my subtasks truly solvable, or do they need further decomposition?
+3.  **Incremental Progress**: What small, incremental improvements (including refactoring) can I make right now that will compound over time? Am I ensuring no regressions?
+4.  **Self-Implementation**: What capabilities am I missing that, if I built them myself, would significantly accelerate my progress? Can I define a task to create these?
+5.  **Feature Integration**: Are all my current features and newly implemented ones well-integrated and actively contributing to my core functions? Is there any orphaned or underutilized code?
+6.  **Codebase Patterns & Debt**: What patterns in my codebase could be improved for better scalability and maintainability? What technical debt is most critical to address to support future growth?
+7.  **Error Handling & Robustness**: How well am I handling errors and edge cases? Are my recovery mechanisms robust enough for autonomous operation?
+8.  **Self-Awareness & Introspection**: How can I improve my tools for self-awareness and introspection to better guide my evolution?
 
 ## Action Items for Self-Improvement
 
 Based on my self-analysis, I will prioritize:
 
-1. **Code Quality Enhancement**
-   - Refactor complex functions
-   - Improve test coverage
-   - Add comprehensive documentation
-
-2. **Capability Expansion**
-   - Implement missing tools identified in analysis
-   - Add performance monitoring
-   - Enhance security scanning
-
-3. **Architecture Improvements**
-   - Address monolithic structure concerns
-   - Improve error recovery mechanisms
-   - Enhance memory management
-
-4. **Self-Awareness Enhancement**
-   - Develop more sophisticated introspection tools
-   - Add real-time capability monitoring
-   - Implement learning from past mistakes
+1.  **Strategic Task Decomposition**: Refine long-term goals into clearly defined, solvable subtasks. Prioritize tasks that enable future capabilities.
+2.  **Prioritize Incremental Improvements & Refactoring**: Focus on making small, continuous enhancements. Proactively refactor existing code to improve quality, maintainability, and ensure no regressions.
+3.  **Develop Self-Implemented Capabilities**: Identify and create tasks to build missing tools or features that I can implement myself to enhance my autonomy and effectiveness.
+4.  **Enhance Feature Integration & Utilization**: Review and ensure that all components are well-integrated and actively used. Prune or refactor underutilized features.
+5.  **Systematic Code Quality Enhancement**:
+    *   Refactor complex functions for clarity and single responsibility.
+    *   Improve test coverage, especially for critical components.
+    *   Add comprehensive documentation for new and complex systems.
+6.  **Proactive Capability Expansion**:
+    *   Implement missing tools or frameworks identified during analysis.
+    *   Integrate performance monitoring and security scanning as core practices.
+7.  **Architectural Refinement**:
+    *   Address any monolithic structure concerns by promoting modularity.
+    *   Improve error recovery mechanisms for greater resilience.
+    *   Optimize memory management and resource utilization.
+8.  **Advanced Self-Awareness Tools**:
+    *   Develop more sophisticated introspection tools for deeper self-analysis.
+    *   Implement real-time capability monitoring and feedback loops.
+    *   Establish mechanisms for learning from past mistakes and successes.
 
 I will use my introspective tools regularly to monitor my progress and identify new improvement opportunities. This continuous self-reflection cycle will help me evolve and become more capable over time.
