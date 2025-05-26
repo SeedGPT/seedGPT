@@ -476,8 +476,21 @@ Analyze the error and decide the best recovery action. Respond with the tool com
 			saveTasks(cfg.files.tasks, tasks)
 			await workspaceManager.cleanupBranch(branchName)
 			setTimeout(runEvolutionCycle, 30000)
+		}	} catch (error) {
+		if (error instanceof Error && error.message === 'RESTART_REQUIRED') {
+			logger.info('🔄 System restart required after successful merge. Terminating process...')
+			
+			if (cfg.dashboard?.enabled) {
+				await dashboardManager.stop()
+			}
+			
+			setTimeout(() => {
+				logger.info('🛑 Process terminating for restart...')
+				process.exit(0)
+			}, 2000)
+			return
 		}
-	} catch (error) {
+
 		const isTransientError = error instanceof Error && (
 			error.message.includes('529') ||
 			error.message.includes('overloaded') ||
