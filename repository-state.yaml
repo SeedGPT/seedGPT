@@ -1,0 +1,25 @@
+codebaseSize: 18
+testCoverage: 60
+technicalDebt: 3
+lastAnalysis: '2025-05-26T18:32:02.616Z'
+capabilities:
+  - task management
+  - git automation
+  - ai code generation
+  - code review
+  - ci/cd integration
+missingTools:
+  - advanced testing framework
+  - performance monitoring
+  - security scanning
+  - dependency management
+  - documentation generator
+architecturalConcerns:
+  - monolithic structure
+  - limited error recovery
+  - basic memory management
+opportunityAreas:
+  - microservices architecture
+  - advanced ai techniques
+  - real-time monitoring
+  - distributed execution

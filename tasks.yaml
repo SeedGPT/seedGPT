@@ -1,56 +1,269 @@
+# Standard Development Tasks
 - id: 1
   description: Add comprehensive README with architecture overview
   priority: high
   status: done
+  type: feature
+  estimatedEffort: medium
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  completedAt: "2024-01-15T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: simple
+    failureCount: 0
+
 - id: 2
   description: Integrate Semgrep security scanner into CI pipeline with automated fixes
   priority: medium
   status: pending
+  type: tool
+  estimatedEffort: medium
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: medium
+    complexity: moderate
+    failureCount: 0
+    requiredTools: ["semgrep", "ci-pipeline"]
+
 - id: 3
   description: Implement comprehensive error handling with custom error classes and proper error propagation
   priority: high
   status: pending
+  type: refactor
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: complex
+    failureCount: 0
+
 - id: 4
   description: Create automated testing framework with unit tests, integration tests, and test coverage reporting
   priority: high
   status: pending
+  type: feature
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: critical
+    complexity: expert
+    failureCount: 0
+
 - id: 5
   description: Refactor codebase to eliminate technical debt and improve maintainability with consistent patterns
   priority: high
   status: pending
+  type: refactor
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: complex
+    failureCount: 0
+
 - id: 6
   description: Build vector database integration for intelligent long-term memory and context retrieval
   priority: medium
   status: pending
+  type: feature
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: expert
+    failureCount: 0
+
 - id: 7
   description: Implement sprint-based planning with automated evaluation and retrospective cycles
   priority: medium
   status: pending
+  type: feature
+  estimatedEffort: medium
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: medium
+    complexity: moderate
+    failureCount: 0
+
 - id: 8
   description: Create intelligent code analysis tools to understand and improve existing codebase architecture
   priority: medium
   status: pending
+  type: tool
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: expert
+    failureCount: 0
+
 - id: 9
   description: Build capability for multi-file refactoring and large-scale architectural improvements
   priority: medium
   status: pending
+  type: feature
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: expert
+    failureCount: 0
+
 - id: 10
   description: Implement automated deployment pipeline with health checks and rollback capabilities
   priority: low
   status: pending
+  type: tool
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: medium
+    complexity: complex
+    failureCount: 0
+
 - id: 11
   description: Create self-monitoring system with performance metrics and automated optimization
   priority: low
   status: pending
+  type: feature
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: medium
+    complexity: expert
+    failureCount: 0
+
 - id: 12
   description: Add comprehensive logging and observability with structured logging and metrics collection
   priority: medium
   status: pending
+  type: feature
+  estimatedEffort: medium
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: moderate
+    failureCount: 0
+
 - id: 13
   description: Implement advanced AI code review system with context-aware suggestions and improvements
   priority: medium
   status: pending
+  type: feature
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: expert
+    failureCount: 0
+
 - id: 14
   description: Build intelligent documentation generator that creates and updates documentation based on code changes
   priority: low
   status: pending
+  type: tool
+  estimatedEffort: large
+  createdAt: "2024-01-01T00:00:00.000Z"
+  updatedAt: "2024-01-01T00:00:00.000Z"
+  metadata:
+    impact: medium
+    complexity: complex
+    failureCount: 0
+
+# Conversation Context Management Tasks
+- id: 15
+  description: Implement session-based conversation persistence with automatic context restoration
+  priority: high
+  status: pending
+  type: feature
+  estimatedEffort: medium
+  createdAt: "2025-05-26T00:00:00.000Z"
+  updatedAt: "2025-05-26T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: moderate
+    failureCount: 0
+    context: ["conversation management", "context persistence", "session state"]
+
+- id: 16
+  description: Create conversation branching system for managing multiple discussion threads
+  priority: medium
+  status: pending
+  type: feature
+  estimatedEffort: large
+  createdAt: "2025-05-26T00:00:00.000Z"
+  updatedAt: "2025-05-26T00:00:00.000Z"
+  metadata:
+    impact: medium
+    complexity: complex
+    failureCount: 0
+    context: ["conversation threading", "parallel discussions", "context isolation"]
+
+- id: 17
+  description: Implement intelligent context compression and token optimization for long conversations
+  priority: high
+  status: pending
+  type: feature
+  estimatedEffort: medium
+  createdAt: "2025-05-26T00:00:00.000Z"
+  updatedAt: "2025-05-26T00:00:00.000Z"
+  metadata:
+    impact: high
+    complexity: moderate
+    failureCount: 0
+    context: ["token management", "context optimization", "memory efficiency"]
+
+- id: 18
+  description: Build milestone-based conversation summaries with key decision tracking
+  priority: medium
+  status: pending
+  type: feature
+  estimatedEffort: medium
+  createdAt: "2025-05-26T00:00:00.000Z"
+  updatedAt: "2025-05-26T00:00:00.000Z"
+  metadata:
+    impact: medium
+    complexity: moderate
+    failureCount: 0
+    context: ["conversation milestones", "decision tracking", "project summaries"]
+
+- id: 19
+  description: Create contextual file tracking system for conversation-relevant codebase changes
+  priority: medium
+  status: pending
+  type: feature
+  estimatedEffort: medium
+  createdAt: "2025-05-26T00:00:00.000Z"
+  updatedAt: "2025-05-26T00:00:00.000Z"
+  metadata:
+    impact: medium
+    complexity: moderate
+    failureCount: 0
+    context: ["file tracking", "conversation context", "change monitoring"]
+
+- id: 20
+  description: Implement conversation continuity validation and context health checks
+  priority: low
+  status: pending
+  type: tool
+  estimatedEffort: small
+  createdAt: "2025-05-26T00:00:00.000Z"
+  updatedAt: "2025-05-26T00:00:00.000Z"
+  metadata:
+    impact: low
+    complexity: simple
+    failureCount: 0
+    context: ["conversation validation", "context integrity", "health monitoring"]

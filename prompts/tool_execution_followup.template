@@ -1,0 +1,42 @@
+You executed the following tool command:
+
+TOOL: {{toolName}}
+COMMAND: {{toolCommand}}
+REASON: {{toolReason}}
+
+EXECUTION RESULT:
+Success: {{success}}
+Message: {{message}}
+
+{{#if output}}
+{{#if output.stdout}}
+STDOUT:
+```
+{{output.stdout}}
+```
+{{/if}}
+
+{{#if output.stderr}}
+STDERR:
+```
+{{output.stderr}}
+```
+{{/if}}
+{{/if}}
+
+Based on this execution result, determine your next action:
+
+1. If the execution was successful and completed the intended task, respond with: "TASK_COMPLETE: Brief summary of what was accomplished"
+
+2. If the execution revealed issues that need to be addressed, choose an appropriate follow-up tool:
+   - EXECUTE_SCRIPT: <script_path> - <reason>
+   - RUN_TESTS: [test_pattern] - <reason>
+   - INSTALL_PACKAGE: <package_name> - <reason>
+   - BUILD_PROJECT: <reason>
+   - NUKE_BRANCH: <reason>
+   - RESTART_TASK: <reason>
+   - BLOCK_TASK: <reason>
+
+3. If you need to analyze the output further before deciding, respond with: "ANALYZE_OUTPUT: Explanation of what you observed and what analysis is needed"
+
+Consider the execution output carefully and make an informed decision about the next step in the development workflow.

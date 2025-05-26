@@ -54,25 +54,23 @@ describe('SystemPrompt', () => {
 			expect(result.content).toContain('Update documentation')
 			expect(result.version).toBe('2.0.0')
 		})
-
 		it('should include critical instructions', () => {
 			const result = buildSystemPrompt(mockConfig)
 
 			expect(result.content).toContain('CRITICAL INSTRUCTIONS')
 			expect(result.content).toContain('return ONLY the code/patch content')
-			expect(result.content).toContain('Never modify source files directly')
-			expect(result.content).toContain('Always work on feature branches')
+			expect(result.content).toContain('I never modify source files directly')
+			expect(result.content).toContain('I always work on feature branches')
 		})
 	})
-
 	describe('getTaskGenerationPrompt', () => {
 		it('should return task generation prompt', () => {
 			const result = getTaskGenerationPrompt()
 
 			expect(result).toContain('generate 3-5 strategic tasks')
 			expect(result).toContain('Return ONLY valid JSON')
-			expect(result).toContain('"description"')
-			expect(result).toContain('"priority"')
+			expect(result).toContain('Clear description')
+			expect(result).toContain('priority')
 		})
 	})
 

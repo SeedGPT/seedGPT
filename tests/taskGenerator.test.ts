@@ -1,5 +1,5 @@
 import { validateAndDeduplicateTasks } from '../src/taskGenerator.js'
-import { Task } from '../src/taskManager.js'
+import { Task } from '../src/types.js'
 
 jest.mock('../src/logger.js', () => ({
 	default: {
@@ -12,15 +12,16 @@ jest.mock('../src/logger.js', () => ({
 
 describe('TaskGenerator', () => {
 	describe('validateAndDeduplicateTasks', () => {
+		const now = new Date().toISOString()
 		const existingTasks: Task[] = [
-			{ id: 1, description: 'Existing task', priority: 'high', status: 'done' },
-			{ id: 2, description: 'Another existing task', priority: 'medium', status: 'pending' }
+			{ id: 1, description: 'Existing task', priority: 'high', status: 'done', createdAt: now, updatedAt: now },
+			{ id: 2, description: 'Another existing task', priority: 'medium', status: 'pending', createdAt: now, updatedAt: now }
 		]
 
 		it('should validate and return valid tasks', () => {
 			const newTasks: Task[] = [
-				{ id: 3, description: 'New valid task', priority: 'high', status: 'pending' },
-				{ id: 4, description: 'Another new task', priority: 'medium', status: 'pending' }
+				{ id: 3, description: 'New valid task', priority: 'high', status: 'pending', createdAt: now, updatedAt: now },
+				{ id: 4, description: 'Another new task', priority: 'medium', status: 'pending', createdAt: now, updatedAt: now }
 			]
 
 			const result = validateAndDeduplicateTasks(newTasks, existingTasks)
@@ -32,8 +33,8 @@ describe('TaskGenerator', () => {
 
 		it('should reject tasks with insufficient description', () => {
 			const newTasks: Task[] = [
-				{ id: 3, description: 'Short', priority: 'high', status: 'pending' },
-				{ id: 4, description: 'This is a valid long description', priority: 'medium', status: 'pending' }
+				{ id: 3, description: 'Short', priority: 'high', status: 'pending', createdAt: now, updatedAt: now },
+				{ id: 4, description: 'This is a valid long description', priority: 'medium', status: 'pending', createdAt: now, updatedAt: now }
 			]
 
 			const result = validateAndDeduplicateTasks(newTasks, existingTasks)
@@ -44,8 +45,8 @@ describe('TaskGenerator', () => {
 
 		it('should reject duplicate tasks', () => {
 			const newTasks: Task[] = [
-				{ id: 3, description: 'Existing task', priority: 'high', status: 'pending' },
-				{ id: 4, description: 'Completely new task description', priority: 'medium', status: 'pending' }
+				{ id: 3, description: 'Existing task', priority: 'high', status: 'pending', createdAt: now, updatedAt: now },
+				{ id: 4, description: 'Completely new task description', priority: 'medium', status: 'pending', createdAt: now, updatedAt: now }
 			]
 
 			const result = validateAndDeduplicateTasks(newTasks, existingTasks)
@@ -56,7 +57,7 @@ describe('TaskGenerator', () => {
 
 		it('should set default priority for invalid priority', () => {
 			const newTasks: Task[] = [
-				{ id: 3, description: 'Task with invalid priority', status: 'pending' }
+				{ id: 3, description: 'Task with invalid priority', status: 'pending', createdAt: now, updatedAt: now }
 			]
 
 			const result = validateAndDeduplicateTasks(newTasks, existingTasks)
@@ -67,7 +68,7 @@ describe('TaskGenerator', () => {
 
 		it('should set status to pending for all new tasks', () => {
 			const newTasks: Task[] = [
-				{ id: 3, description: 'Task with different status', priority: 'high', status: 'done' }
+				{ id: 3, description: 'Task with different status', priority: 'high', status: 'done', createdAt: now, updatedAt: now }
 			]
 
 			const result = validateAndDeduplicateTasks(newTasks, existingTasks)

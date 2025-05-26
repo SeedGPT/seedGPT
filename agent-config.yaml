@@ -32,3 +32,12 @@ files:
   tasks: "./tasks.yaml"
   progress: "./PROGRESS.md"
   changelog: "./CHANGELOG.md"
+
+dashboard:
+  enabled: true
+  port: 3000
+
+research:
+  enabled: true
+  directory: "./research/"
+  maxResearchTasks: 5
