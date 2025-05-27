@@ -76,8 +76,8 @@ export class WorkspaceManager {
 		await this.git.cwd(this.workspacePath)
 
 		// Configure git with credentials for future operations
-		await this.git.addConfig('user.name', 'SeedGPT Agent')
-		await this.git.addConfig('user.email', 'seedgpt@autonomous.dev')
+		await this.git.addConfig('user.name', 'SeedGPT')
+		await this.git.addConfig('user.email', 'agent.seedgpt@gmail.com')
 
 		logger.info('Repository cloned to workspace')
 	}
