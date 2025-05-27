@@ -8,7 +8,7 @@ import { ContextManager } from './contextManager.js'
 import { BranchRecoveryManager } from './branchRecoveryManager.js'
 import { Octokit } from '@octokit/rest'
 import logger from './logger.js'
-import { parseCodeReview } from './codeReviewer.js'
+import { enhancedCodeReview } from './codeReviewer.js'
 import { getPatchGenerationPrompt, getReviewPrompt, getSummarizePrompt } from './systemPrompt.js'
 import { appendProgress } from './progressLogger.js'
 import { updateMemory } from './memory.js'
@@ -131,7 +131,7 @@ export class EvolutionWorkflow {
 			{ role: 'user', content: reviewPrompt }
 		])
 
-		const parsedReview = parseCodeReview(reviewFeedback)
+		const parsedReview = await enhancedCodeReview(patch, reviewFeedback, this.deps.llmClient)
 		
 		if (!parsedReview.approved || parsedReview.issues.length > 0) {
 			logger.info('🔍 Review found issues, generating improved patch...', {
@@ -170,62 +170,87 @@ export class EvolutionWorkflow {
 	}
     
     private async checkIfMoreWorkNeeded(state: WorkflowState): Promise<boolean> {
-		const analysisPrompt = `
+		const programmaticCheck = this.programmaticWorkCheck(state)
+		const llmEnhancedCheck = await this.llmEnhancedWorkAssessment(state)
+		
+		return programmaticCheck || llmEnhancedCheck
+	}
+
+	private programmaticWorkCheck(state: WorkflowState): boolean {
+		if (state.iterationCount >= state.maxIterations) return false
+		if (state.ciFailureCount > 3) return false
+		
+		const hasRecentFailures = state.lastFailureReason !== undefined
+		const lowIterationCount = state.iterationCount < 2
+		const hasSimpleTask = state.task.estimatedEffort === 'small'
+		
+		return hasRecentFailures || (lowIterationCount && !hasSimpleTask)
+	}
+
+	private async llmEnhancedWorkAssessment(state: WorkflowState): Promise<boolean> {
+		try {
+			const assessmentPrompt = `
 Task: ${state.task.description}
-Current iteration: ${state.iterationCount}
-Branch: ${state.branchName}
+Priority: ${state.task.priority}
+Type: ${state.task.type}
+Estimated Effort: ${state.task.estimatedEffort}
 
-DECISION HISTORY:
-${state.decisionHistory.map(d => `Iteration ${d.iteration}: ${d.decision} - ${d.reasoning}`).join('\n')}
+Current Status:
+- Iteration: ${state.iterationCount}/${state.maxIterations}
+- CI Failures: ${state.ciFailureCount}
+- Last Failure: ${state.lastFailureReason || 'None'}
+- Branch: ${state.branchName}
 
-As an autonomous development agent, I need to determine if more work is required for this task.
+Recent Workflow Decisions:
+${state.decisionHistory.slice(-3).map(d => 
+	`${d.iteration}: ${d.decision} - ${d.reasoning}`
+).join('\n')}
 
-Current development status:
-- Iteration ${state.iterationCount} of ${state.maxIterations} completed
-- Changes have been applied and committed
-${state.prNumber ? `- PR #${state.prNumber} has been created` : '- PR will be created on next iteration'}
-${state.ciFailureCount > 0 ? `- Previous CI failures: ${state.ciFailureCount}` : '- No CI failures so far'}
+Assess if more work is needed considering:
+1. Task completion criteria vs current implementation
+2. Code quality and robustness gaps
+3. Test coverage and edge cases
+4. Integration points and dependencies
+5. Risk of leaving task incomplete vs over-engineering
 
-I should analyze:
-1. Is the core functionality fully implemented according to the task description?
-2. Are there missing edge cases, error handling, or validation?
-3. Should I add comprehensive tests to ensure reliability?
-4. Is documentation needed for the new functionality?
-5. Are there potential improvements or optimizations to make?
-6. Could the implementation be more robust or maintainable?
-7. Have I learned from previous decision history and failures?
+Return JSON:
+{
+  "needsMoreWork": true/false,
+  "reasoning": "detailed analysis of completion status",
+  "recommendedAction": "continue/complete/fix/optimize",
+  "priority": "high/medium/low"
+}`
 
-Based on my self-assessment and the current state, I will decide whether to:
-- CONTINUE: Continue with another iteration to improve/complete the implementation
-- COMPLETE: The task is sufficiently implemented and ready for CI/merge
+			const response = await this.deps.llmClient.generateResponse([
+				...state.contextMessages,
+				{ role: 'user', content: assessmentPrompt }
+			], true)
 
-Decision and reasoning:`
+			const assessment = JSON.parse(response)
+			
+			state.decisionHistory.push({
+				iteration: state.iterationCount,
+				decision: assessment.needsMoreWork ? 'continue' : 'complete',
+				reasoning: assessment.reasoning,
+				timestamp: new Date().toISOString(),
+				contextSnapshot: `LLM Assessment: ${assessment.recommendedAction} (${assessment.priority})`
+			})
 
-		const response = await this.deps.llmClient.generateResponse([
-			...state.contextMessages,
-			{ role: 'user', content: analysisPrompt }
-		])
+			logger.info('LLM work assessment completed', {
+				taskId: state.task.id,
+				needsMoreWork: assessment.needsMoreWork,
+				reasoning: assessment.reasoning,
+				recommendedAction: assessment.recommendedAction
+			})
 
-		const shouldContinue = response.toUpperCase().includes('CONTINUE')
-		const decision = shouldContinue ? 'continue' : 'complete'
-		
-		// Record decision in history		
-        state.decisionHistory.push({
-			iteration: state.iterationCount,
-			decision,
-			reasoning: response.substring(0, 300),
-			timestamp: new Date().toISOString(),
-			contextSnapshot: `Iteration ${state.iterationCount}, CI failures: ${state.ciFailureCount}`
-		})
-		
-		logger.info(`LLM iteration decision: ${decision.toUpperCase()}`, {
-			taskId: state.task.id,
-			iteration: state.iterationCount,
-			reasoning: response.substring(0, 200),
-			totalDecisions: state.decisionHistory.length
-		})
-
-		return shouldContinue
+			return assessment.needsMoreWork
+		} catch (error) {
+			logger.warn('LLM work assessment failed, using programmatic fallback', { 
+				error, 
+				taskId: state.task.id 
+			})
+			return this.programmaticWorkCheck(state)
+		}
 	}
 	private async handlePRAndMerge(state: WorkflowState): Promise<boolean> {
 		if (!state.prNumber) {
