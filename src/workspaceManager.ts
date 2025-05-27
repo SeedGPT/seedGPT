@@ -25,6 +25,10 @@ export class WorkspaceManager {
 		return path.join(this.workspacePath, relativePath)
 	}
 
+	getGit(): SimpleGit {
+		return this.git
+	}
+
 	async initializeWorkspace (): Promise<void> {
 		try {
 			await this.ensureCleanWorkspace()

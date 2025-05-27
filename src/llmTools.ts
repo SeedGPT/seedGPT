@@ -35,7 +35,7 @@ export class LLMTools {
 			if (success) {
 				return {
 					success: true,
-					message: `Branch ${branchName} successfully nuked and reset`,
+					message: `Branch ${branchName} successfully nuked and deleted`,
 					action: 'BRANCH_NUKED'
 				}
 			} else {

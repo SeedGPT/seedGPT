@@ -215,6 +215,10 @@ async function runEvolutionCycle(): Promise<void> {
 		
 		if (success) {
 			logger.info(`✅ Task #${task.id} completed successfully`)
+			
+			const branchName = `task-${task.id}-${task.description.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 30)}`
+			await branchRecoveryManager.deleteBranch(branchName)
+			
 			saveTasks(cfg.files.tasks, tasks)
 			throw new Error('RESTART_REQUIRED')
 		} else {

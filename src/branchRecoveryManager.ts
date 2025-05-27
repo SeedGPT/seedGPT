@@ -13,6 +13,43 @@ export class BranchRecoveryManager {
 		this.recoveryLog = 'recovery.log'
 	}
 
+	async deleteBranch(branchName: string): Promise<boolean> {
+		try {
+			logger.info('Deleting branch after successful completion', { branchName })
+			
+			await this.workspaceManager.syncWithRemote()
+			
+			const git = this.workspaceManager.getGit()
+			
+			try {
+				await git.checkout('main')
+			} catch (checkoutError) {
+				logger.warn('Failed to checkout main, attempting master', { checkoutError })
+				await git.checkout('master')
+			}
+			
+			try {
+				await git.deleteLocalBranch(branchName)
+				logger.info('Local branch deleted successfully', { branchName })
+			} catch (localDeleteError) {
+				logger.warn('Failed to delete local branch', { localDeleteError, branchName })
+			}
+			
+			try {
+				await git.push('origin', branchName, ['--delete'])
+				logger.info('Remote branch deleted successfully', { branchName })
+			} catch (remoteDeleteError) {
+				logger.warn('Failed to delete remote branch', { remoteDeleteError, branchName })
+			}
+			
+			await this.logRecoveryAction(null, branchName, 'BRANCH_DELETED')
+			return true
+		} catch (error) {
+			logger.error('Failed to delete branch', { error, branchName })
+			return false
+		}
+	}
+
 	async nukeBranchIfStuck(task: Task, branchName: string): Promise<boolean> {
 		try {
 			const shouldNuke = await this.evaluateNukeConditions(task)
@@ -28,6 +65,7 @@ export class BranchRecoveryManager {
 			})
 
 			await this.performBranchNuke(branchName, task)
+			await this.deleteBranch(branchName)
 			await this.logRecoveryAction(task, branchName, 'BRANCH_NUKED')
 
 			task.metadata = {
