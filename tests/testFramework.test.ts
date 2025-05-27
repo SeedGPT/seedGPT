@@ -75,5 +75,126 @@ describe('TestFramework', () => {
 
 		it('should run tests successfully with coverage', async () => {
 			// Mock successful Jest execution
-			const mockProcess = createMockProcess({
-				success: true
+
+
+	it('should throw error when workspace manager is not provided', () => {
+		expect(() => new TestFramework(null as any, testConfig)).toThrow('WorkspaceManager is required')
+	})
+
+	it('should throw error when config is not provided', () => {
+		expect(() => new TestFramework(mockWorkspaceManager, null as any)).toThrow('TestConfig is required')
+	})
+
+	describe('getConfig', () => {
+		it('should return a copy of current configuration', () => {
+			const config = testFramework.getConfig()
+			expect(config).toEqual(testConfig)
+			expect(config).not.toBe(testConfig) // Should be a copy
+		})
+	})
+
+	describe('updateConfig', () => {
+		it('should update configuration partially', () => {
+			const updates = { testTimeout: 15000 }
+			testFramework.updateConfig(updates)
+			const updatedConfig = testFramework.getConfig()
+			expect(updatedConfig.testTimeout).toBe(15000)
+		})
+	})
+			const jestOutput = JSON.stringify({
+				success: true,
+				numTotalTests: 10,
+				numPassedTests: 10,
+				numFailedTests: 0,
+				numPendingTests: 0
+			})
+
+			const mockProcess = createMockProcess(0, jestOutput, '')
+			mockSpawn.mockReturnValue(mockProcess as any)
+
+			const results = await testFramework.runTests()
+
+			expect(results.success).toBe(true)
+			expect(results.totalTests).toBe(10)
+			expect(results.passedTests).toBe(10)
+			expect(results.failedTests).toBe(0)
+			expect(results.coverage).toBeDefined()
+		})
+
+		it('should handle test failures correctly', async () => {
+			const jestOutput = JSON.stringify({
+				success: false,
+				numTotalTests: 10,
+				numPassedTests: 8,
+				numFailedTests: 2,
+				numPendingTests: 0,
+				testResults: [{
+					message: 'Test failed',
+					assertionResults: [{
+						status: 'failed',
+						failureMessages: ['Assertion failed']
+					}]
+				}]
+			})
+
+			const mockProcess = createMockProcess(1, jestOutput, '')
+			mockSpawn.mockReturnValue(mockProcess as any)
+
+			const results = await testFramework.runTests()
+
+			expect(results.success).toBe(false)
+			expect(results.errors).toContain('Test failed')
+			expect(results.errors).toContain('Assertion failed')
+		})
+
+		it('should handle empty Jest output', async () => {
+			const mockProcess = createMockProcess(0, '', '')
+			mockSpawn.mockReturnValue(mockProcess as any)
+
+			const results = await testFramework.runTests()
+
+			expect(results.success).toBe(false)
+			expect(results.errors).toContain('Empty Jest output received')
+		})
+
+		it('should include test pattern in Jest args', async () => {
+			const jestOutput = JSON.stringify({ success: true, numTotalTests: 0 })
+			const mockProcess = createMockProcess(0, jestOutput, '')
+			mockSpawn.mockReturnValue(mockProcess as any)
+
+			await testFramework.runTests('unit')
+
+			expect(mockSpawn).toHaveBeenCalledWith('npx',
+				expect.arrayContaining(['--testNamePattern', 'unit']),
+				expect.any(Object)
+			)
+		})
+	})
+
+	describe('runUnitTests', () => {
+		it('should run unit tests with correct pattern', async () => {
+			const jestOutput = JSON.stringify({ success: true, numTotalTests: 5 })
+			const mockProcess = createMockProcess(0, jestOutput, '')
+			mockSpawn.mockReturnValue(mockProcess as any)
+
+			await testFramework.runUnitTests()
+
+			expect(mockSpawn).toHaveBeenCalledWith('npx',
+				expect.arrayContaining(['--testNamePattern', '.*\\.unit\\.']),
+				expect.any(Object)
+			)
+		})
+	})
+
+	describe('runIntegrationTests', () => {
+		it('should run integration tests with correct pattern', async () => {
+			const jestOutput = JSON.stringify({ success: true, numTotalTests: 3 })
+			const mockProcess = createMockProcess(0, jestOutput, '')
+			mockSpawn.mockReturnValue(mockProcess as any)
+
+			await testFramework.runIntegrationTests()
+
+			expect(mockSpawn).toHaveBeenCalledWith('npx',
+				expect.arrayContaining(['--testNamePattern', '.*\\.integration\\.']),
+				expect.any(Object)
+			)

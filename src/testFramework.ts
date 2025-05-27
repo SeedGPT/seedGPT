@@ -1,7 +1,6 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { spawn } from 'child_process'
-import { promisify } from 'util'
 
 import logger from './logger.js'
 import { WorkspaceManager } from './workspaceManager.js'
@@ -77,7 +76,6 @@ export interface FileCoverage {
 }
 
 /**
- * Automated testing framework with comprehensive test execution and coverage reporting
  */
 export class TestFramework {
 	private config: TestConfig
@@ -154,7 +152,6 @@ export class TestFramework {
 	 */
 	async runUnitTests(): Promise<TestResults> {
 		logger.info('Running unit tests')
-		return this.runTests('unit')
 	}
 
 	/**
@@ -163,7 +160,6 @@ export class TestFramework {
 	 */
 	async runIntegrationTests(): Promise<TestResults> {
 		logger.info('Running integration tests')
-		return this.runTests('integration')
 	}
 
 	/**
@@ -207,10 +203,7 @@ export class TestFramework {
 
 			// Check for Jest configuration
 			const jestConfigPath = this.workspaceManager.getWorkspaceFilePath('jest.config.js')
-			const jestConfigExists = await fs.access(jestConfigPath).then(() => true).catch(() => false)
 
-			if (!jestConfigExists) {
-				logger.warn('Jest configuration not found, using defaults')
 			}
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -227,7 +220,6 @@ export class TestFramework {
 		const jestArgs = [
 			'--json',
 			'--coverage',
-			'--passWithNoTests'
 		]
 
 		if (pattern) {
@@ -241,7 +233,6 @@ export class TestFramework {
 			return this.parseJestOutput(output)
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-			throw new Error(`Jest execution failed: ${errorMessage}`)
 		}
 	}
 
@@ -260,12 +251,8 @@ export class TestFramework {
 				passedTests: jestResults.numPassedTests || 0,
 				failedTests: jestResults.numFailedTests || 0,
 				skippedTests: jestResults.numPendingTests || 0,
-				errors: jestResults.testResults?.flatMap((test: any) =>
-					test.message ? [test.message] : []
-				) || []
 			}
 		} catch (error) {
-			throw new Error(`Failed to parse Jest output: ${output}`)
 		}
 	}
 
@@ -350,3 +337,112 @@ export class TestFramework {
 		})
 	}
 }
+
+ * Automated testing framework with comprehensive test execution and coverage reporting.
+ * Provides unit testing, integration testing, and detailed coverage analysis.
+		if (!workspaceManager) {
+			throw new Error('WorkspaceManager is required')
+		}
+		if (!config) {
+			throw new Error('TestConfig is required')
+		}
+
+		return this.runTests('.*\\.unit\\.')
+		return this.runTests('.*\\.integration\\.')
+	}
+
+	/**
+	 * Run a specific test file
+	 * @param testFilePath Path to the test file to run
+	 * @returns Test results for the specific file
+	 */
+	async runTestFile(testFilePath: string): Promise<TestResults> {
+		if (!testFilePath) {
+			throw new Error('Test file path is required')
+		}
+		if (this.config.testTimeout && this.config.testTimeout < 0) {
+			throw new Error('Test timeout must be positive')
+		}
+
+		logger.info('Running specific test file', { testFilePath })
+		return this.runTests(testFilePath)
+		if (!coverage) {
+			logger.warn('No coverage data provided for validation')
+			return false
+		}
+
+	/**
+	 * Get current test configuration
+	 * @returns Current test configuration
+	 */
+	getConfig(): TestConfig {
+		return { ...this.config }
+	}
+
+	/**
+	 * Update test configuration
+	 * @param updates Partial configuration updates
+	 */
+	updateConfig(updates: Partial<TestConfig>): void {
+		this.config = { ...this.config, ...updates }
+		logger.debug('Test configuration updated', { updates })
+	}
+
+			try {
+				await fs.access(jestConfigPath)
+			} catch {
+				logger.warn('Jest configuration not found at expected path', { jestConfigPath })
+			}
+			// Verify Node.js modules are available
+			const nodeModulesPath = this.workspaceManager.getWorkspaceFilePath('node_modules')
+			try {
+				await fs.access(nodeModulesPath)
+			} catch {
+				throw new Error('Node modules not found. Run npm install first.')
+
+			logger.debug('Test environment setup completed')
+			'--passWithNoTests',
+			'--silent'
+		// Add timeout configuration
+		if (this.config.testTimeout) {
+			jestArgs.push('--testTimeout', this.config.testTimeout.toString())
+		}
+
+			logger.debug('Executing Jest with args', { jestArgs, workingDirectory })
+			throw new Error(`Jest execution failed in ${workingDirectory}: ${errorMessage}`)
+			if (!output || output.trim().length === 0) {
+				throw new Error('Empty Jest output received')
+			}
+
+			// Extract error messages from failed tests
+			const errors: string[] = []
+			if (jestResults.testResults) {
+				jestResults.testResults.forEach((testResult: any) => {
+					if (testResult.message) {
+						errors.push(testResult.message)
+					}
+					if (testResult.assertionResults) {
+						testResult.assertionResults.forEach((assertion: any) => {
+							if (assertion.status === 'failed' && assertion.failureMessages) {
+								errors.push(...assertion.failureMessages)
+							}
+						})
+					}
+				})
+			}
+
+				errors
+			const errorMessage = error instanceof Error ? error.message : 'Unknown parsing error'
+			throw new Error(`Failed to parse Jest output: ${errorMessage}. Output: ${output.substring(0, 200)}...`)
+			logger.debug('Reading coverage report', { coverageFile })
+			if (!coverage.total) {
+				logger.warn('Coverage report missing total section')
+				return undefined
+			}
+
+			if (!command) {
+				reject(new Error('Command is required'))
+				return
+			}
+
+			logger.debug('Executing command', { command, args, cwd })
