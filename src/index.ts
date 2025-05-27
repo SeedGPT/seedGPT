@@ -156,8 +156,7 @@ ${existingTasks.filter(t => t.status === 'done').slice(-3).map(t => `#${t.id}: $
 	}
 }
 
-async function runEvolutionCycle(): Promise<void> {
-	try {
+async function runEvolutionCycle(): Promise<void> {	try {
 		await initializeDirectories()
 		await workspaceManager.initializeWorkspace()
 
@@ -178,6 +177,8 @@ async function runEvolutionCycle(): Promise<void> {
 
 		if (recoveryAttempted) {
 			saveTasks(cfg.files.tasks, tasks)
+			// Reload tasks after recovery
+			tasks = loadTasks(cfg.files.tasks)
 		}
 
 		const pending = tasks.filter(t => t.status === 'pending')
@@ -196,7 +197,9 @@ async function runEvolutionCycle(): Promise<void> {
 				setTimeout(runEvolutionCycle, 30000)
 				return
 			}
-		}		// Use intelligent task selection
+		}
+
+		// Use intelligent task selection
 		const repoState = await intelligentTaskManager.analyzeRepositoryState()
 		const superTasks = await intelligentTaskManager.loadSuperTasks()
 		const task = await intelligentTaskManager.intelligentTaskSelection(tasks, superTasks)
@@ -207,24 +210,79 @@ async function runEvolutionCycle(): Promise<void> {
 			return
 		}
 		logger.info(`🛠 Working on Task #${task.id}: ${task.description}`)
+		
+		// Mark task as started and save state
 		task.status = 'in-progress'
+		task.metadata = task.metadata || {}
+		task.metadata.startedAt = new Date().toISOString()
 		saveTasks(cfg.files.tasks, tasks)
 
-		const success = await evolutionWorkflow.executeTask(task)
-		
-		if (success) {
-			logger.info(`✅ Task #${task.id} completed successfully`)
+		try {
+			const success = await evolutionWorkflow.executeTask(task)
 			
-			const branchName = `task-${task.id}-${task.description.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 30)}`
-			await branchRecoveryManager.deleteBranch(branchName)
+			// Reload tasks to get latest state after workflow execution
+			tasks = loadTasks(cfg.files.tasks)
+			const updatedTask = tasks.find(t => t.id === task.id)
 			
-			saveTasks(cfg.files.tasks, tasks)
-			throw new Error('RESTART_REQUIRED')
-		} else {
-			logger.warn(`❌ Task #${task.id} failed, will retry later`)
-			saveTasks(cfg.files.tasks, tasks)
+			if (success && updatedTask) {
+				logger.info(`✅ Task #${task.id} completed successfully`)
+				
+				// Mark task as complete
+				await intelligentTaskManager.markTaskAsComplete(task.id, tasks, superTasks)
+				
+				// Task completed successfully - trigger restart for clean state
+				throw new Error('RESTART_REQUIRED')
+			} else {
+				// Task failed - update failure count and status
+				if (updatedTask) {
+					updatedTask.metadata = updatedTask.metadata || {}
+					updatedTask.metadata.failureCount = (updatedTask.metadata.failureCount || 0) + 1
+					updatedTask.status = 'pending' // Reset to pending for retry
+					
+					if (updatedTask.metadata.failureCount >= 3) {
+						updatedTask.status = 'blocked'
+						updatedTask.metadata.blockedReason = 'Too many failures'
+						logger.warn(`🚫 Task #${task.id} blocked after ${updatedTask.metadata.failureCount} failures`)
+					} else {
+						logger.warn(`❌ Task #${task.id} failed (attempt ${updatedTask.metadata.failureCount}/3)`)
+					}
+				} else {
+					logger.warn(`❌ Task #${task.id} failed, task not found after execution`)
+				}
+				
+				saveTasks(cfg.files.tasks, tasks)
+				
+				// Wait before retrying
+				setTimeout(runEvolutionCycle, 60000)
+			}		} catch (taskError: unknown) {
+			// Handle task execution errors
+			const errorMessage = taskError instanceof Error ? taskError.message : String(taskError)
+			logger.error(`Task #${task.id} execution failed with error`, { error: taskError })
+			
+			// Reload and update task failure count
+			tasks = loadTasks(cfg.files.tasks)
+			const failedTask = tasks.find(t => t.id === task.id)
+			if (failedTask) {
+				failedTask.metadata = failedTask.metadata || {}
+				failedTask.metadata.failureCount = (failedTask.metadata.failureCount || 0) + 1
+				failedTask.status = failedTask.metadata.failureCount >= 3 ? 'blocked' : 'pending'
+				
+				if (failedTask.status === 'blocked') {
+					failedTask.metadata.blockedReason = `Execution error: ${errorMessage}`
+				}
+				
+				saveTasks(cfg.files.tasks, tasks)
+			}
+			
+			// Check if this is a restart signal
+			if (taskError instanceof Error && taskError.message === 'RESTART_REQUIRED') {
+				throw taskError
+			}
+			
+			// Wait before retrying
 			setTimeout(runEvolutionCycle, 60000)
-		}} catch (error) {
+		}
+	} catch (error) {
 		if (error instanceof Error && error.message === 'RESTART_REQUIRED') {
 			logger.info('🔄 System restart required after successful merge. Terminating process...')
 			

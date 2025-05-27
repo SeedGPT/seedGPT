@@ -88,6 +88,7 @@ export interface Task {
 		impact?: 'low' | 'medium' | 'high' | 'critical';
 		complexity?: 'simple' | 'moderate' | 'complex' | 'expert';
 		generationSource?: 'intelligent' | 'memory-insight' | 'research' | 'manual';
+		startedAt?: string;
 	};
 }
 

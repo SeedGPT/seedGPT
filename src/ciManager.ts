@@ -15,7 +15,6 @@ export class CIManager {
 		this.repo = process.env.GITHUB_REPO_NAME!
 		this.cfg = cfg
 	}
-
 	async waitForCIAndMerge (prNumber: number): Promise<boolean> {
 		const maxWaitMs = this.cfg.ci.maxWaitMinutes * 60 * 1000
 		const pollIntervalMs = this.cfg.ci.pollIntervalSeconds * 1000
@@ -52,7 +51,9 @@ export class CIManager {
 
 				if (ciStatus.state === 'pending') {
 					const elapsed = Math.round((Date.now() - startTime) / 1000)
-					logger.debug(`CI still running for PR #${prNumber} (${elapsed}s elapsed)`)
+					logger.debug(`CI still running for PR #${prNumber} (${elapsed}s elapsed)`, {
+						description: ciStatus.description
+					})
 				}
 
 				await this.sleep(pollIntervalMs)

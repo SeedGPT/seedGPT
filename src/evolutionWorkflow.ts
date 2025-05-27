@@ -51,20 +51,37 @@ export class EvolutionWorkflow {
 
 	constructor(dependencies: WorkflowDependencies) {
 		this.deps = dependencies
-	}
-	async executeTask(task: Task): Promise<boolean> {
-		const state: WorkflowState = {
-			task,
-			branchName: await this.deps.workspaceManager.createFeatureBranch(task.id),
-			contextMessages: await this.deps.contextManager.buildContextMessages(task.description),
-			iterationCount: 0,
-			maxIterations: 10,
-			decisionHistory: [],
-			ciFailureCount: 0
-		}
+	}	async executeTask(task: Task): Promise<boolean> {
+		let state: WorkflowState | undefined
 
 		try {
-			logger.info(`🛠 Starting task execution workflow`, { taskId: task.id })
+			// Ensure workspace is clean and up-to-date before starting
+			await this.deps.workspaceManager.syncWithRemote()
+			
+			// Check for existing branches for this task to avoid duplicates
+			const existingBranchName = await this.findExistingTaskBranch(task.id)
+			let branchName: string
+			
+			if (existingBranchName) {
+				logger.info(`Found existing branch for task #${task.id}: ${existingBranchName}`, { taskId: task.id })
+				branchName = existingBranchName
+				// Switch to existing branch and sync
+				await this.deps.workspaceManager.getGit().checkout(branchName)
+			} else {
+				branchName = await this.deps.workspaceManager.createFeatureBranch(task.id)
+			}
+
+			state = {
+				task,
+				branchName,
+				contextMessages: await this.deps.contextManager.buildContextMessages(task.description),
+				iterationCount: 0,
+				maxIterations: 10,
+				decisionHistory: [],
+				ciFailureCount: 0
+			}
+
+			logger.info(`🛠 Starting task execution workflow`, { taskId: task.id, branchName })
 			
 			await this.iterativeImplementation(state)
 			
@@ -76,30 +93,58 @@ export class EvolutionWorkflow {
 			
 			return false
 		} catch (error) {
-			await this.handleTaskFailure(state, error)
+			if (state) {
+				await this.handleTaskFailure(state, error)
+			}
 			return false
 		}
-	}
-	private async iterativeImplementation(state: WorkflowState): Promise<void> {
+	}	private async iterativeImplementation(state: WorkflowState): Promise<void> {
 		while (state.iterationCount < state.maxIterations) {
 			state.iterationCount++
 			logger.info(`🔄 Development iteration ${state.iterationCount}/${state.maxIterations}`, { taskId: state.task.id })
 
-			await this.generateAndReviewPatch(state)
-			await this.applyPatchToWorkspace(state)
-			
-			// Enhanced commit messaging for iterative development
-			const commitMessage = this.buildIterationCommitMessage(state)
-			await this.deps.workspaceManager.commitAndPush(state.task.id, commitMessage, state.branchName)
-			
-			logger.info(`💾 Iteration ${state.iterationCount} committed to branch`, { 
-				taskId: state.task.id, 
-				branch: state.branchName,
-				message: commitMessage.substring(0, 50) + '...'
-			})
-			
-			if (state.iterationCount === 1) {
-				state.prNumber = await this.createPullRequest(state)
+			try {
+				await this.generateAndReviewPatch(state)
+				await this.applyPatchToWorkspace(state)
+				
+				// Enhanced commit messaging for iterative development
+				const commitMessage = this.buildIterationCommitMessage(state)
+				await this.deps.workspaceManager.commitAndPush(state.task.id, commitMessage, state.branchName)
+				
+				logger.info(`💾 Iteration ${state.iterationCount} committed to branch`, { 
+					taskId: state.task.id, 
+					branch: state.branchName,
+					message: commitMessage.substring(0, 50) + '...'
+				})
+				
+				if (state.iterationCount === 1) {
+					// Validate branch before creating PR
+					const validation = await this.deps.workspaceManager.validateBranchForPR(state.branchName)
+					if (validation.valid) {
+						state.prNumber = await this.createPullRequest(state)
+					} else {
+						logger.warn(`Cannot create PR: ${validation.reason}`, { 
+							taskId: state.task.id,
+							branchName: state.branchName 
+						})
+						throw new Error(`PR creation validation failed: ${validation.reason}`)
+					}
+				}
+			} catch (patchError) {
+				logger.error(`Patch application failed in iteration ${state.iterationCount}`, { 
+					taskId: state.task.id,
+					error: patchError,
+					iteration: state.iterationCount
+				})
+				
+				// If this is the first iteration and patch fails, don't try to create PR
+				if (state.iterationCount === 1) {
+					throw new Error(`Initial patch application failed: ${patchError}`)
+				}
+				
+				// For subsequent iterations, we may still have a valid PR, so continue
+				logger.warn(`Continuing with existing PR after patch failure in iteration ${state.iterationCount}`)
+				break
 			}
 
 			const shouldContinue = await this.checkIfMoreWorkNeeded(state)
@@ -153,20 +198,52 @@ export class EvolutionWorkflow {
 		logger.info('📝 Applying patch to workspace...', { taskId: state.task.id })
 		await this.deps.workspaceManager.applyPatch(state.currentPatch, state.task.id)
 		logger.info('✅ Patch applied successfully', { taskId: state.task.id })
-	}
+	}	private async createPullRequest(state: WorkflowState): Promise<number> {
+		// Check if PR already exists for this branch
+		const existingPRNumber = await this.ensureValidPR(state)
+		if (existingPRNumber) {
+			logger.info(`Using existing PR #${existingPRNumber} for branch ${state.branchName}`)
+			return existingPRNumber
+		}
 
-	private async createPullRequest(state: WorkflowState): Promise<number> {
-		const pr = await this.deps.octokit.pulls.create({
-			owner: process.env.GITHUB_REPO_OWNER!,
-			repo: process.env.GITHUB_REPO_NAME!,
-			head: state.branchName,
-			base: this.deps.cfg.git.mainBranch,
-			title: `🔨 Task #${state.task.id}: ${state.task.description}`,
-			body: this.buildPRDescription(state)
-		})
+		// Double-check branch validation before creating PR (additional safety)
+		const validation = await this.deps.workspaceManager.validateBranchForPR(state.branchName)
+		if (!validation.valid) {
+			throw new Error(`Cannot create PR - branch validation failed: ${validation.reason}`)
+		}
 
-		logger.info(`📬 PR #${pr.data.number} created: ${pr.data.html_url}`)
-		return pr.data.number
+		// Create new PR
+		try {
+			const pr = await this.deps.octokit.pulls.create({
+				owner: process.env.GITHUB_REPO_OWNER!,
+				repo: process.env.GITHUB_REPO_NAME!,
+				head: state.branchName,
+				base: this.deps.cfg.git.mainBranch,
+				title: `🔨 Task #${state.task.id}: ${state.task.description}`,
+				body: this.buildPRDescription(state)
+			})
+
+			logger.info(`📬 PR #${pr.data.number} created: ${pr.data.html_url}`)
+			return pr.data.number		} catch (error: any) {
+			// Handle 422 error which often means duplicate PR or "No commits between branches"
+			if (error.status === 422) {
+				const errorMessage = error.message || error.toString()
+				if (errorMessage.includes('No commits between')) {
+					logger.error(`PR creation failed - no commits between branches`, { 
+						branchName: state.branchName,
+						error: errorMessage
+					})
+					throw new Error(`No commits between ${state.branchName} and ${this.deps.cfg.git.mainBranch}`)
+				}
+				
+				logger.warn(`PR creation failed with 422, checking for existing PR again`, { branchName: state.branchName })
+				const existingPR = await this.ensureValidPR(state)
+				if (existingPR) {
+					return existingPR
+				}
+			}
+			throw error
+		}
 	}
     
     private async checkIfMoreWorkNeeded(state: WorkflowState): Promise<boolean> {
@@ -652,5 +729,52 @@ Available recovery actions:
 - BLOCK_TASK: <reason> - Mark task as blocked
 
 Analyze the error and decide the best recovery action. Respond with the tool command and reason.`
+	}
+
+	private async findExistingTaskBranch(taskId: number): Promise<string | null> {
+		try {
+			const git = this.deps.workspaceManager.getGit()
+			const branches = await git.branch(['-r'])
+			
+			// Look for branches that match the task pattern
+			const taskBranchPattern = `feature/task-${taskId}-`
+			const existingBranch = branches.all.find(branch => 
+				branch.includes(taskBranchPattern) && !branch.includes('HEAD')
+			)
+			
+			if (existingBranch) {
+				// Convert remote branch name to local branch name
+				const localBranchName = existingBranch.replace('origin/', '')
+				return localBranchName
+			}
+			
+			return null
+		} catch (error) {
+			logger.warn('Failed to check for existing task branches', { error, taskId })
+			return null
+		}
+	}
+
+	private async ensureValidPR(state: WorkflowState): Promise<number | null> {
+		try {
+			// Check if PR already exists for this branch
+			const existingPRs = await this.deps.octokit.pulls.list({
+				owner: process.env.GITHUB_REPO_OWNER!,
+				repo: process.env.GITHUB_REPO_NAME!,
+				head: `${process.env.GITHUB_REPO_OWNER}:${state.branchName}`,
+				state: 'open'
+			})
+
+			if (existingPRs.data.length > 0) {
+				const existingPR = existingPRs.data[0]
+				logger.info(`Found existing PR #${existingPR.number} for branch ${state.branchName}`)
+				return existingPR.number
+			}
+
+			return null
+		} catch (error) {
+			logger.warn('Failed to check for existing PRs', { error, branchName: state.branchName })
+			return null
+		}
 	}
 }

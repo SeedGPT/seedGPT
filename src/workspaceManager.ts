@@ -81,16 +81,25 @@ export class WorkspaceManager {
 
 		logger.info('Repository cloned to workspace')
 	}
-
 	async syncWithRemote (): Promise<void> {
 		try {
 			const currentBranch = await this.git.branch()
 
+			// Always fetch latest from remote first
+			await this.git.fetch(this.cfg.git.remoteName)
+
+			// If not on main branch, switch to it
 			if (currentBranch.current !== this.cfg.git.mainBranch) {
-				await this.git.checkout(this.cfg.git.mainBranch)
+				try {
+					await this.git.checkout(this.cfg.git.mainBranch)
+				} catch (checkoutError) {
+					logger.warn(`Failed to checkout ${this.cfg.git.mainBranch}, may not exist locally`, { checkoutError })
+					// Try to create local main branch from remote
+					await this.git.checkout(['-b', this.cfg.git.mainBranch, `${this.cfg.git.remoteName}/${this.cfg.git.mainBranch}`])
+				}
 			}
 
-			await this.git.fetch(this.cfg.git.remoteName)
+			// Reset to latest remote state
 			await this.git.reset(['--hard', `${this.cfg.git.remoteName}/${this.cfg.git.mainBranch}`])
 
 			logger.debug('Synced with remote main branch')
@@ -99,7 +108,6 @@ export class WorkspaceManager {
 			throw error
 		}
 	}
-
 	async createFeatureBranch (taskId: number): Promise<string> {
 		try {
 			await this.syncWithRemote()
@@ -114,6 +122,11 @@ export class WorkspaceManager {
 				currentBranch: currentBranch.current,
 				workspacePath: this.workspacePath
 			})
+
+			// Ensure we're on main branch before creating feature branch
+			if (currentBranch.current !== this.cfg.git.mainBranch) {
+				await this.git.checkout(this.cfg.git.mainBranch)
+			}
 
 			await this.git.checkoutLocalBranch(branchName)
 
@@ -224,7 +237,6 @@ export class WorkspaceManager {
 		await this.git.add('.')
 		logger.info('Applied patch manually', { taskId, filesChanged: fileChanges.size })
 	}
-
 	async applyPatch (patchContent: string, taskId: number): Promise<void> {
 		try {
 			logger.debug('Applying patch', { 
@@ -233,7 +245,22 @@ export class WorkspaceManager {
 				patchPreview: patchContent.substring(0, 200) + (patchContent.length > 200 ? '...' : '')
 			})
 
+			// Validate patch content before attempting to apply
+			const patchValidation = this.validatePatchContent(patchContent)
+			if (!patchValidation.valid) {
+				throw new Error(`Invalid patch content: ${patchValidation.reason}`)
+			}
+
 			await this.tryApplyPatchMethods(patchContent, taskId)
+			
+			// Validate that meaningful changes were made
+			const workspaceValidation = await this.validateWorkspaceForCommit()
+			if (!workspaceValidation.hasChanges) {
+				logger.warn('Patch applied but no meaningful changes detected', { 
+					taskId, 
+					reason: workspaceValidation.reason 
+				})
+			}
 			
 			// Clean up patch file
 			const patchFile = path.join(this.workspacePath, `task-${taskId}.patch`)
@@ -285,10 +312,28 @@ export class WorkspaceManager {
 			})
 			throw error
 		}
-	}
-	async commitAndPush (taskId: number, description: string, branchName: string): Promise<void> {
+	}	async commitAndPush (taskId: number, description: string, branchName: string): Promise<void> {
 		try {
+			// Use enhanced validation to check for meaningful changes
+			const validation = await this.validateWorkspaceForCommit()
+			if (!validation.hasChanges) {
+				logger.info('No meaningful changes to commit', { 
+					taskId, 
+					branch: branchName, 
+					reason: validation.reason 
+				})
+				return
+			}
+
 			await this.git.add('.')
+			
+			// Verify files were staged
+			const postAddStatus = await this.git.status()
+			if (postAddStatus.staged.length === 0) {
+				logger.info('No staged changes after git add', { taskId, branch: branchName })
+				return
+			}
+
 			await this.git.commit(`Task #${taskId}: ${description}`)
 			
 			// Set up authenticated remote URL for push
@@ -299,10 +344,13 @@ export class WorkspaceManager {
 			
 			await this.git.removeRemote(this.cfg.git.remoteName).catch(() => {})
 			await this.git.addRemote(this.cfg.git.remoteName, authUrl)
-			
-			await this.git.push(['-u', this.cfg.git.remoteName, branchName])
+					await this.git.push(['-u', this.cfg.git.remoteName, branchName])
 
-			logger.info('Changes committed and pushed', { taskId, branch: branchName })
+			logger.info('Changes committed and pushed', { 
+				taskId, 
+				branch: branchName,
+				stagedFiles: postAddStatus.staged.length
+			})
 		} catch (error) {
 			logger.error('Failed to commit and push', { error, taskId, branch: branchName })
 			throw error
@@ -345,6 +393,123 @@ export class WorkspaceManager {
 			return await command()
 		} finally {
 			process.chdir(originalCwd)
+		}
+	}
+
+	async hasCommitsBetweenBranches(sourceBranch: string, targetBranch: string = 'main'): Promise<boolean> {
+		try {
+			await this.syncWithRemote()
+			
+			const result = await this.git.raw([
+				'rev-list',
+				'--count',
+				`${this.cfg.git.remoteName}/${targetBranch}..${sourceBranch}`
+			])
+			
+			const commitCount = parseInt(result.trim(), 10)
+			logger.debug('Commits between branches', { 
+				sourceBranch, 
+				targetBranch, 
+				commitCount 
+			})
+			
+			return commitCount > 0
+		} catch (error) {
+			logger.error('Failed to check commits between branches', { 
+				error, 
+				sourceBranch, 
+				targetBranch 
+			})
+			// Conservative approach: assume there are commits if we can't check
+			return true
+		}
+	}
+
+	async validateBranchForPR(branchName: string): Promise<{ valid: boolean; reason?: string }> {
+		try {
+			// Check if branch exists locally
+			const branches = await this.git.branch()
+			if (!branches.all.includes(branchName)) {
+				return { valid: false, reason: `Branch ${branchName} does not exist locally` }
+			}
+
+			// Check if there are commits between this branch and main
+			const hasCommits = await this.hasCommitsBetweenBranches(branchName)
+			if (!hasCommits) {
+				return { valid: false, reason: `No commits between ${branchName} and main branch` }
+			}
+
+			// Check if branch has been pushed to remote
+			try {
+				await this.git.raw(['ls-remote', '--exit-code', this.cfg.git.remoteName, branchName])
+			} catch (error) {
+				return { valid: false, reason: `Branch ${branchName} has not been pushed to remote` }
+			}
+
+			return { valid: true }
+		} catch (error) {
+			logger.error('Failed to validate branch for PR', { error, branchName })
+			return { valid: false, reason: `Validation failed: ${error}` }
+		}
+	}
+
+	validatePatchContent(patchContent: string): { valid: boolean; reason?: string } {
+		if (!patchContent || patchContent.trim().length === 0) {
+			return { valid: false, reason: 'Patch content is empty' }
+		}
+
+		const trimmedContent = patchContent.trim()
+		
+		// Check if it contains actual diff content
+		if (!trimmedContent.includes('diff --git') && !trimmedContent.includes('@@')) {
+			return { valid: false, reason: 'Patch does not contain valid diff format' }
+		}
+
+		// Check for meaningful changes (not just whitespace)
+		const hasAdditions = trimmedContent.includes('\n+') && !trimmedContent.match(/^\+\+\+/m)
+		const hasDeletions = trimmedContent.includes('\n-') && !trimmedContent.match(/^---/m)
+		const hasModifications = trimmedContent.includes('@@')
+
+		if (!hasAdditions && !hasDeletions && !hasModifications) {
+			return { valid: false, reason: 'Patch does not contain meaningful changes' }
+		}
+
+		return { valid: true }
+	}
+
+	async validateWorkspaceForCommit(): Promise<{ hasChanges: boolean; reason?: string }> {
+		try {
+			const status = await this.git.status()
+			
+			if (status.files.length === 0) {
+				return { hasChanges: false, reason: 'No files have been modified' }
+			}
+
+			// Check if changes are meaningful (not just whitespace)
+			let meaningfulChanges = false
+			for (const file of status.files) {
+				try {
+					const diff = await this.git.diff([file.path])
+					if (diff.trim().length > 0 && !diff.match(/^\s*$/)) {
+						meaningfulChanges = true
+						break
+					}
+				} catch (diffError) {
+					// If we can't get diff, assume there are meaningful changes
+					meaningfulChanges = true
+					break
+				}
+			}
+
+			if (!meaningfulChanges) {
+				return { hasChanges: false, reason: 'Only whitespace changes detected' }
+			}
+
+			return { hasChanges: true }
+		} catch (error) {
+			logger.error('Failed to validate workspace for commit', { error })
+			// Conservative approach: assume there are changes if we can't check
+			return { hasChanges: true }
 		}
 	}
 }

@@ -333,15 +333,17 @@ config.memory.store`
 
 		return targetFiles
 	}
-
 	private async searchCodebase(query: string): Promise<SearchResult[]> {
 		try {
 			const workspacePath = this.workspaceManager.getWorkspacePath()
 			const isWindows = process.platform === 'win32'
 			
+			// Escape wildcards for grep/PowerShell and convert to regex patterns
+			const escapedQuery = query.replace(/\*/g, '.*').replace(/\?/g, '.')
+			
 			const searchCmd = isWindows 
-				? `Get-ChildItem -Recurse -Include "*.ts","*.js","*.json","*.md" | Select-String -Pattern "${query.replace(/"/g, '`"')}" | ForEach-Object { "$($_.Filename):$($_.LineNumber):$($_.Line)" }`
-				: `grep -rn --include="*.ts" --include="*.js" --include="*.json" --include="*.md" "${query}" .`
+				? `Get-ChildItem -Recurse -Include "*.ts","*.js","*.json","*.md" | Select-String -Pattern "${escapedQuery.replace(/"/g, '`"')}" | ForEach-Object { "$($_.Filename):$($_.LineNumber):$($_.Line)" }`
+				: `grep -rn --include="*.ts" --include="*.js" --include="*.json" --include="*.md" "${escapedQuery}" .`
 			
 			const { stdout } = await execAsync(searchCmd, { 
 				cwd: workspacePath,
