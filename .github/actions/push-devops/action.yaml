@@ -29,21 +29,21 @@ runs:
                 git commit -m "${{ github.sha }}"
             shell: bash
 
-        -   name: Checkout seedgpt-devops
+        -   name: Checkout seedGPT-DevOps
             uses: actions/checkout@v4
             with:
-                repository: "SeedGPT/seedgpt-devops"
+                repository: "SeedGPT/seedGPT-DevOps"
                 token: ${{ inputs.devops_repo_token }}
-                path: "seedgpt-devops"
+                path: "seedGPT-DevOps"
 
-        -   name: Copy files to seedgpt-devops
+        -   name: Copy files to seedGPT-DevOps
             run: |
-                cp -r k8s/* seedgpt-devops/k8s/
+                cp -r k8s/* seedGPT-DevOps/k8s/
             shell: bash
 
-        -   name: Push changes to seedgpt-devops
+        -   name: Push changes to seedGPT-DevOps
             run: |
-                cd seedgpt-devops
+                cd seedGPT-DevOps
                 git add k8s/*
                 git commit -m "${{ github.sha }}"
                 git push origin HEAD

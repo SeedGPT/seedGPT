@@ -4,18 +4,21 @@ import path from 'path'
 import yaml from 'js-yaml'
 
 import logger from './logger.js'
-import { Config, ResearchTask, TaskSuggestion, RepositoryState } from './types.js'
+import { Config, RepositoryState, ResearchTask, TaskSuggestion } from './types.js'
 import { WorkspaceManager } from './workspaceManager.js'
+import { LLMClient } from './llmClient.js'
 
 export class ResearchManager {
 	private cfg: Config
 	private workspaceManager: WorkspaceManager | null
+	private llmClient?: LLMClient
 	private researchPath: string
 	private researchSummariesPath: string
 
-	constructor(cfg: Config, workspaceManager?: WorkspaceManager) {
+	constructor(cfg: Config, workspaceManager?: WorkspaceManager, llmClient?: LLMClient) {
 		this.cfg = cfg
 		this.workspaceManager = workspaceManager || null
+		this.llmClient = llmClient
 		this.researchPath = './research'
 		this.researchSummariesPath = './research/summaries'
 		this.ensureResearchDirectories()
@@ -72,68 +75,134 @@ export class ResearchManager {
 	}
 
 	async conductResearch(topic: string): Promise<ResearchTask> {
+		const researchId = Date.now()
+		const questions = this.generateResearchQuestions(topic)
+		const sources = this.identifyResearchSources(topic)
+		
+		const hybridFindings = await this.hybridResearchGathering(topic, questions, sources)
+		const enhancedRecommendations = await this.generateEnhancedRecommendations(
+			hybridFindings, 
+			topic
+		)
+
 		const researchTask: ResearchTask = {
-			id: Date.now(),
+			id: researchId,
 			topic,
-			questions: this.generateResearchQuestions(topic),
-			sources: this.identifyResearchSources(topic),
-			findings: await this.gatherFindings(topic),
-			recommendations: [],
+			questions,
+			sources,
+			findings: hybridFindings,
+			recommendations: enhancedRecommendations,
 			createdAt: new Date().toISOString(),
+			completedAt: new Date().toISOString(),
 			relatedTasks: [],
-			impact: 'medium'
+			impact: this.assessResearchImpact(hybridFindings, topic)
 		}
 
-		researchTask.recommendations = this.generateRecommendations(researchTask.findings, topic)
 		await this.saveResearchTask(researchTask)
-
-		logger.info('Research completed', {
-			topic: researchTask.topic,
-			findingsLength: researchTask.findings.length,
-			recommendations: researchTask.recommendations.length
-		})
-
 		return researchTask
 	}
 
-	async getResearchSummary(maxEntries: number = 5): Promise<string> {
-		const researchTasks = await this.loadRecentResearch(maxEntries)
+	private async hybridResearchGathering(
+		topic: string, 
+		questions: string[], 
+		sources: string[]
+	): Promise<string> {
+		const programmaticFindings = await this.gatherFindings(topic)
 		
-		if (researchTasks.length === 0) {
-			return 'No recent research available'
+		if (!this.llmClient) {
+			return programmaticFindings
 		}
 
-		let summary = 'Recent Research Findings:\n'
-		for (const research of researchTasks) {
-			summary += `\n${research.topic}:\n`
-			summary += `Key findings: ${research.findings.substring(0, 200)}...\n`
-			summary += `Recommendations: ${research.recommendations.slice(0, 2).join(', ')}\n`
-		}
+		try {
+			const enhancementPrompt = `
+Research Topic: ${topic}
 
-		return summary
+Key Questions:
+${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+
+Available Sources: ${sources.join(', ')}
+
+Current Findings (programmatically gathered):
+${programmaticFindings}
+
+Enhance this research by:
+1. Identifying gaps in the current findings
+2. Synthesizing key insights and patterns
+3. Connecting findings to practical applications
+4. Highlighting critical considerations
+5. Suggesting additional research directions
+
+Provide a comprehensive analysis that builds upon the programmatic findings.`
+
+			const enhancedAnalysis = await this.llmClient.generateResponse([
+				{ role: 'user', content: enhancementPrompt }
+			], true)
+
+			return `${programmaticFindings}\n\n--- LLM ENHANCED ANALYSIS ---\n${enhancedAnalysis}`
+		} catch (error) {
+			logger.warn('LLM research enhancement failed, using programmatic findings', { error, topic })
+			return programmaticFindings
+		}
 	}
 
-	async createResearchBasedTasks(researchTasks: ResearchTask[]): Promise<TaskSuggestion[]> {
-		const suggestions: TaskSuggestion[] = []
+	private async generateEnhancedRecommendations(findings: string, topic: string): Promise<string[]> {
+		const programmaticRecommendations = this.generateRecommendations(findings, topic)
+		
+		if (!this.llmClient) {
+			return programmaticRecommendations
+		}
 
-		for (const research of researchTasks) {
-			for (const recommendation of research.recommendations) {
-				suggestions.push({
-					description: `Implement: ${recommendation}`,
-					rationale: `Based on research into ${research.topic}`,
-					priority: research.impact === 'high' ? 'high' : 'medium',
-					type: 'feature',
-					estimatedEffort: 'medium',
-					dependencies: [],
-					impact: research.impact,
-					urgency: research.impact === 'high' ? 8 : 6,
-					prerequisites: [`Research: ${research.topic}`]
-				})
+		try {
+			const recommendationPrompt = `
+Research Topic: ${topic}
+Research Findings: ${findings}
+
+Current Recommendations:
+${programmaticRecommendations.map((r, i) => `${i + 1}. ${r}`).join('\n')}
+
+Generate additional actionable recommendations that:
+1. Address specific implementation strategies
+2. Consider risk mitigation approaches
+3. Identify success metrics and milestones
+4. Suggest incremental adoption pathways
+5. Connect to existing system capabilities
+
+Return JSON array of enhanced recommendations:
+["recommendation 1", "recommendation 2", ...]`
+
+			const response = await this.llmClient.generateResponse([
+				{ role: 'user', content: recommendationPrompt }
+			], true)
+
+			const enhancedRecs = this.llmClient.extractJsonFromResponse(response) as string[]
+			return [...programmaticRecommendations, ...enhancedRecs]
+		} catch (error) {
+			logger.warn('LLM recommendation enhancement failed', { error, topic })
+			return programmaticRecommendations
+		}
+	}
+
+	private assessResearchImpact(findings: string, topic: string): 'low' | 'medium' | 'high' | 'critical' {
+		const impactKeywords = {
+			critical: ['security', 'vulnerability', 'breaking', 'critical', 'urgent'],
+			high: ['performance', 'scalability', 'architecture', 'major', 'significant'],
+			medium: ['improvement', 'enhancement', 'optimize', 'refactor'],
+			low: ['minor', 'cosmetic', 'documentation', 'style']
+		}
+
+		const findingsLower = findings.toLowerCase()
+		const topicLower = topic.toLowerCase()
+		const combinedText = `${findingsLower} ${topicLower}`
+
+		for (const [level, keywords] of Object.entries(impactKeywords)) {
+			if (keywords.some(keyword => combinedText.includes(keyword))) {
+				return level as 'low' | 'medium' | 'high' | 'critical'
 			}
 		}
 
-		return suggestions
+		return 'medium'
 	}
+
 	private ensureResearchDirectories(): void {
 		const researchPath = this.getWorkspacePath(this.researchPath)
 		const summariesPath = this.getWorkspacePath(this.researchSummariesPath)

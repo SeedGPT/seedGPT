@@ -25,14 +25,39 @@ export class LLMClient {
 			try {
 				const model = useImportantModel ? this.cfg.models.important : this.cfg.models.routine
 
-				const resp = await this.anthropic.messages.create({
+				const requestData = {
 					model,
 					max_tokens: 4096,
 					system: this.systemPrompt,
 					messages
+				}
+
+				logger.info(`LLM Request - Attempt ${attempt}/${maxRetries}`, {
+					model,
+					messageCount: messages.length,
+					useImportantModel,
+					systemPromptLength: this.systemPrompt.length,
+					messages: messages.map(msg => ({
+						role: msg.role,
+						contentLength: msg.content.length,
+						contentPreview: msg.content.substring(0, 200) + (msg.content.length > 200 ? '...' : '')
+					}))
 				})
 
+				const resp = await this.anthropic.messages.create(requestData)
+
 				const content = resp.content[0].type === 'text' ? resp.content[0].text : ''
+
+				logger.info(`LLM Response - Success`, {
+					model,
+					responseLength: content.length,
+					tokensUsed: {
+						input: resp.usage?.input_tokens,
+						output: resp.usage?.output_tokens
+					},
+					responsePreview: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+					attempt
+				})
 
 				if (!content.trim()) {
 					throw new Error('Empty response from LLM')
@@ -44,6 +69,18 @@ export class LLMClient {
 
 				return content
 			} catch (error: any) {
+				logger.error(`LLM Request - Failed`, {
+					model: useImportantModel ? this.cfg.models.important : this.cfg.models.routine,
+					attempt,
+					maxRetries,
+					error: {
+						status: error.status,
+						message: error.message,
+						type: error.type
+					},
+					messageCount: messages.length
+				})
+
 				const isRetryable = error.status === 529 || error.status === 503 || error.status === 502
 				const isLastAttempt = attempt === maxRetries
 

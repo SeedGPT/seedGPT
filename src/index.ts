@@ -22,7 +22,6 @@ import { getTaskGenerationPrompt, getPatchGenerationPrompt, getReviewPrompt, get
 import { loadConfig, loadTasks, saveTasks, setWorkspaceManager } from './taskManager.js'
 import { AnthropicMessage, Config, Task } from './types.js'
 import { WorkspaceManager } from './workspaceManager.js'
-import { parseCodeReview } from './codeReviewer.js'
 
 const requiredEnvVars = ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'GITHUB_REPO_OWNER', 'GITHUB_REPO_NAME', 'BETTERSTACK_LOG_TOKEN', 'NODE_ENV', 'DASHBOARD_PASSWORD_HASH']
 for (const envVar of requiredEnvVars) {
@@ -57,12 +56,12 @@ try {
 	setMemoryWorkspaceManager(workspaceManager)
 	setProgressWorkspaceManager(workspaceManager)
 	ciManager = new CIManager(octokit, cfg)
-	intelligentTaskManager = new IntelligentTaskManager(cfg, workspaceManager)
-	researchManager = new ResearchManager(cfg, workspaceManager)
+	intelligentTaskManager = new IntelligentTaskManager(cfg, workspaceManager, llmClient)
+	researchManager = new ResearchManager(cfg, workspaceManager, llmClient)
 	branchRecoveryManager = new BranchRecoveryManager(workspaceManager)
 	dashboardManager = new DashboardManager(intelligentTaskManager, cfg, branchRecoveryManager)
-	llmTools = new LLMTools(branchRecoveryManager, workspaceManager)
-	contextManager = new ContextManager(workspaceManager)
+	llmTools = new LLMTools(branchRecoveryManager, workspaceManager, llmClient)
+	contextManager = new ContextManager(workspaceManager, llmClient)
 	
 	const workflowDeps: WorkflowDependencies = {
 		llmClient,
@@ -215,6 +214,10 @@ async function runEvolutionCycle(): Promise<void> {
 		
 		if (success) {
 			logger.info(`✅ Task #${task.id} completed successfully`)
+			
+			const branchName = `task-${task.id}-${task.description.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 30)}`
+			await branchRecoveryManager.deleteBranch(branchName)
+			
 			saveTasks(cfg.files.tasks, tasks)
 			throw new Error('RESTART_REQUIRED')
 		} else {

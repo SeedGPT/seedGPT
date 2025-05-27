@@ -7,6 +7,7 @@ import logger from './logger.js'
 import { loadMemory } from './memory.js'
 import { Config, Task, SuperTask, RepositoryState, TaskSuggestion, ResearchTask } from './types.js'
 import { WorkspaceManager } from './workspaceManager.js'
+import { LLMClient } from './llmClient.js'
 
 export class IntelligentTaskManager {
 	private cfg: Config
@@ -14,10 +15,12 @@ export class IntelligentTaskManager {
 	private superTasksPath: string
 	private repositoryStatePath: string
 	private workspaceManager?: WorkspaceManager
+	private llmClient?: LLMClient
 
-	constructor(cfg: Config, workspaceManager?: WorkspaceManager) {
+	constructor(cfg: Config, workspaceManager?: WorkspaceManager, llmClient?: LLMClient) {
 		this.cfg = cfg
 		this.workspaceManager = workspaceManager
+		this.llmClient = llmClient
 		this.tasksPath = cfg.files.tasks
 		this.superTasksPath = './super-tasks.yaml'
 		this.repositoryStatePath = './repository-state.yaml'
@@ -99,34 +102,83 @@ export class IntelligentTaskManager {
 			return this.analyzeRepositoryState()
 		}
 	}
-
 	async intelligentTaskSelection(tasks: Task[], superTasks: SuperTask[]): Promise<Task | null> {
 		const pendingTasks = tasks.filter(t => t.status === 'pending')
 		if (pendingTasks.length === 0) return null
 
 		const repoState = await this.getRepositoryState()
-		const taskScores = await this.scoreTasksByContext(pendingTasks, repoState, superTasks)
+		const scoredTasks = await this.scoreTasksByContext(pendingTasks, repoState, superTasks)
+		
+		const hybridSelectedTask = await this.hybridTaskSelection(scoredTasks, repoState)
+		return hybridSelectedTask
+	}
 
-		const blockedTasks = pendingTasks.filter(t => this.isTaskBlocked(t, tasks))
-		const unBlockedTasks = taskScores.filter(score => !blockedTasks.some(bt => bt.id === score.task.id))
+	private async hybridTaskSelection(
+		scoredTasks: Array<{ task: Task; score: number; rationale: string }>,
+		repoState: RepositoryState
+	): Promise<Task | null> {
+		if (scoredTasks.length === 0) return null
 
-		if (unBlockedTasks.length === 0) {
-			await this.handleBlockedSituation(blockedTasks, tasks, superTasks)
-			return null
+		const programmaticTop3 = scoredTasks.slice(0, 3)
+		
+		try {
+			if (!this.llmClient) {
+				return programmaticTop3[0]?.task || null
+			}
+
+			const selectionPrompt = `
+Current Repository State:
+- Codebase Size: ${repoState.codebaseSize} files
+- Technical Debt: ${repoState.technicalDebt}/10
+- Test Coverage: ${repoState.testCoverage}%
+- Missing Tools: ${repoState.missingTools.join(', ')}
+- Architectural Concerns: ${repoState.architecturalConcerns.join(', ')}
+
+Top Task Candidates (programmatically scored):
+${programmaticTop3.map((item, idx) => 
+	`${idx + 1}. Task #${item.task.id}: ${item.task.description}
+	   Priority: ${item.task.priority}, Type: ${item.task.type}
+	   Score: ${item.score}, Rationale: ${item.rationale}
+	   Estimated Effort: ${item.task.estimatedEffort}
+	   Dependencies: ${item.task.dependencies?.length || 0}`
+).join('\n\n')}
+
+Analyze these tasks considering:
+1. Strategic value vs immediate impact
+2. Risk of failure vs learning opportunity  
+3. Dependencies and blocking relationships
+4. Current system capabilities and gaps
+5. Technical debt reduction potential
+6. Long-term architectural benefits
+
+Select the optimal task and provide reasoning.
+
+Return JSON:
+{
+  "selectedTaskId": ${programmaticTop3[0].task.id},
+  "reasoning": "detailed explanation of selection logic",
+  "alternativeConsiderations": "what other factors were weighed"
+}`
+
+			const response = await this.llmClient.generateResponse([
+				{ role: 'user', content: selectionPrompt }
+			], true)
+
+			const selection = JSON.parse(response)
+			const selectedTask = programmaticTop3.find(item => item.task.id === selection.selectedTaskId)
+			
+			if (selectedTask) {
+				logger.info('LLM-enhanced task selection', {
+					taskId: selection.selectedTaskId,
+					reasoning: selection.reasoning
+				})
+				return selectedTask.task
+			}
+		} catch (error) {
+			logger.warn('LLM task selection failed, using programmatic fallback', { error })
 		}
 
-		const sortedTasks = unBlockedTasks.sort((a, b) => b.score - a.score)
-		const selectedTask = sortedTasks[0].task
-
-		logger.info('Intelligently selected task', {
-			taskId: selectedTask.id,
-			score: sortedTasks[0].score,
-			rationale: sortedTasks[0].rationale,
-			totalCandidates: pendingTasks.length,
-			blockedTasks: blockedTasks.length
-		})
-
-		return selectedTask
+		return programmaticTop3[0]?.task || null
 	}
 
 	async shouldGenerateNewTasks(tasks: Task[], superTasks: SuperTask[]): Promise<boolean> {

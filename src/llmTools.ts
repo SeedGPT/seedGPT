@@ -6,6 +6,7 @@ import logger from './logger.js'
 import { BranchRecoveryManager } from './branchRecoveryManager.js'
 import { WorkspaceManager } from './workspaceManager.js'
 import { Task } from './types.js'
+import { LLMClient } from './llmClient.js'
 
 const execAsync = promisify(exec)
 
@@ -21,21 +22,26 @@ export interface LLMToolResult {
 }
 
 export class LLMTools {
-	constructor(
-		private branchRecovery: BranchRecoveryManager,
-		private workspace: WorkspaceManager
-	) {}
+	private branchRecoveryManager: BranchRecoveryManager
+	private workspaceManager: WorkspaceManager
+	private llmClient?: LLMClient
+
+	constructor(branchRecoveryManager: BranchRecoveryManager, workspaceManager: WorkspaceManager, llmClient?: LLMClient) {
+		this.branchRecoveryManager = branchRecoveryManager
+		this.workspaceManager = workspaceManager
+		this.llmClient = llmClient
+	}
 
 	async nukeBranch(task: Task, branchName: string, reason: string): Promise<LLMToolResult> {
 		try {
 			logger.info('LLM requested branch nuke', { taskId: task.id, branchName, reason })
 			
-			const success = await this.branchRecovery.nukeBranchIfStuck(task, branchName)
+			const success = await this.branchRecoveryManager.nukeBranchIfStuck(task, branchName)
 			
 			if (success) {
 				return {
 					success: true,
-					message: `Branch ${branchName} successfully nuked and reset`,
+					message: `Branch ${branchName} successfully nuked and deleted`,
 					action: 'BRANCH_NUKED'
 				}
 			} else {
@@ -111,7 +117,7 @@ export class LLMTools {
 		try {
 			logger.info('LLM requested script execution', { scriptPath, reason, taskId: task?.id })
 			
-			const fullPath = path.resolve(this.workspace.getWorkspacePath(), scriptPath)
+			const fullPath = path.resolve(this.workspaceManager.getWorkspacePath(), scriptPath)
 			
 			if (!fs.existsSync(fullPath)) {
 				return {
@@ -119,7 +125,7 @@ export class LLMTools {
 					message: `Script not found: ${scriptPath}`,
 					action: 'SCRIPT_NOT_FOUND'
 				}
-			}			const result = await this.workspace.runInWorkspace(async () => {
+			}			const result = await this.workspaceManager.runInWorkspace(async () => {
 				const { stdout, stderr } = await execAsync(`node "${fullPath}"`)
 				return { stdout, stderr }
 			})
@@ -152,29 +158,20 @@ export class LLMTools {
 
 	async runTests(testPattern?: string, reason?: string, task?: Task): Promise<LLMToolResult> {
 		try {
+			const testCommand = testPattern ? `npm test -- ${testPattern}` : 'npm test'
 			logger.info('LLM requested test execution', { testPattern, reason, taskId: task?.id })
 			
-			const testCommand = testPattern ? `npm test -- ${testPattern}` : 'npm test'
+			const result = await execAsync(testCommand, { 
+				cwd: this.workspaceManager.getWorkspacePath(),
+				timeout: 300000
+			})
 			
-			const result = await this.workspace.runInWorkspace(async () => {
-				const { stdout, stderr } = await execAsync(testCommand)
-				return { stdout, stderr }
-			})
-
-			const isSuccess = result.stdout.includes('passed') && !result.stderr.includes('failed')
-
-			logger.info('Test execution completed', { 
-				testPattern, 
-				taskId: task?.id,
-				success: isSuccess,
-				outputLength: result.stdout.length
-			})
+			const isSuccess = result.stderr === '' || !result.stderr.includes('FAIL')
+			const enhancedResult = await this.enhanceTestAnalysis(result, testPattern, task)
 
 			return {
 				success: isSuccess,
-				message: isSuccess 
-					? `Tests passed${testPattern ? ` for pattern ${testPattern}` : ''}: ${reason || 'Test execution'}` 
-					: `Tests failed${testPattern ? ` for pattern ${testPattern}` : ''}: ${reason || 'Test execution'}`,
+				message: enhancedResult.message,
 				action: isSuccess ? 'TESTS_PASSED' : 'TESTS_FAILED',
 				output: {
 					stdout: result.stdout,
@@ -182,12 +179,90 @@ export class LLMTools {
 				}
 			}
 		} catch (error) {
-			logger.error('LLM tool runTests failed', { error, testPattern, taskId: task?.id })
+			const enhancedError = await this.analyzeTestFailure(error, testPattern, task)
+			logger.error('LLM tool runTests failed', { error: enhancedError, testPattern, taskId: task?.id })
 			return {
 				success: false,
-				message: `Error running tests${testPattern ? ` for pattern ${testPattern}` : ''}: ${error}`,
+				message: enhancedError.message,
 				action: 'TESTS_ERROR'
 			}
+		}
+	}
+
+	private async enhanceTestAnalysis(
+		result: { stdout: string; stderr: string }, 
+		testPattern?: string, 
+		task?: Task
+	): Promise<{ message: string }> {
+		if (!this.llmClient || !result.stderr) {
+			return {
+				message: `Tests ${result.stderr ? 'failed' : 'passed'}${testPattern ? ` for pattern ${testPattern}` : ''}`
+			}
+		}
+
+		try {
+			const analysisPrompt = `
+Test Execution Results:
+Pattern: ${testPattern || 'All tests'}
+Task Context: ${task ? `#${task.id}: ${task.description}` : 'No specific task'}
+
+STDOUT:
+${result.stdout}
+
+STDERR:
+${result.stderr}
+
+Analyze the test results and provide:
+1. Summary of what passed/failed
+2. Key failure patterns or root causes
+3. Recommended next steps
+4. Potential impact on task completion
+
+Return concise analysis (max 200 chars) for message field.`
+
+			const analysis = await this.llmClient.generateResponse([
+				{ role: 'user', content: analysisPrompt }
+			], false)
+
+			return { message: analysis.slice(0, 200) }
+		} catch (error) {
+			return {
+				message: `Tests ${result.stderr ? 'failed' : 'passed'}${testPattern ? ` for pattern ${testPattern}` : ''}`
+			}
+		}
+	}
+
+	private async analyzeTestFailure(
+		error: any, 
+		testPattern?: string, 
+		task?: Task
+	): Promise<{ message: string }> {
+		if (!this.llmClient) {
+			return { message: `Error running tests${testPattern ? ` for pattern ${testPattern}` : ''}: ${error}` }
+		}
+
+		try {
+			const errorAnalysisPrompt = `
+Test execution failed with error:
+${error.toString()}
+
+Test Pattern: ${testPattern || 'All tests'}
+Task: ${task ? `#${task.id}: ${task.description}` : 'No specific task'}
+
+Analyze this test failure and suggest:
+1. Likely root cause
+2. Quick diagnostic steps
+3. Potential fixes
+
+Return concise analysis (max 200 chars).`
+
+			const analysis = await this.llmClient.generateResponse([
+				{ role: 'user', content: errorAnalysisPrompt }
+			], false)
+
+			return { message: analysis.slice(0, 200) }
+		} catch (llmError) {
+			return { message: `Error running tests${testPattern ? ` for pattern ${testPattern}` : ''}: ${error}` }
 		}
 	}
 
@@ -197,7 +272,7 @@ export class LLMTools {
 			
 			const installCommand = `npm install ${packageName}`
 			
-			const result = await this.workspace.runInWorkspace(async () => {
+			const result = await this.workspaceManager.runInWorkspace(async () => {
 				const { stdout, stderr } = await execAsync(installCommand)
 				return { stdout, stderr }
 			})
@@ -235,7 +310,7 @@ export class LLMTools {
 		try {
 			logger.info('LLM requested project build', { reason, taskId: task?.id })
 			
-			const result = await this.workspace.runInWorkspace(async () => {
+			const result = await this.workspaceManager.runInWorkspace(async () => {
 				const { stdout, stderr } = await execAsync('npm run build')
 				return { stdout, stderr }
 			})
@@ -271,7 +346,7 @@ export class LLMTools {
 		try {
 			logger.info('LLM requested codebase search', { query, reason, taskId: task?.id })
 			
-			const result = await this.workspace.runInWorkspace(async () => {
+			const result = await this.workspaceManager.runInWorkspace(async () => {
 				// Use cross-platform search command
 				const isWindows = process.platform === 'win32'
 				const searchCmd = isWindows 
@@ -310,7 +385,7 @@ export class LLMTools {
 		try {
 			logger.info('LLM requested capability analysis', { reason, taskId: task?.id })
 			
-			const result = await this.workspace.runInWorkspace(async () => {
+			const result = await this.workspaceManager.runInWorkspace(async () => {
 				const isWindows = process.platform === 'win32'
 				const commands = isWindows ? [
 					'(Get-ChildItem -Recurse -Filter "*.ts" | Measure-Object).Count',
@@ -367,7 +442,7 @@ export class LLMTools {
 		try {
 			logger.info('LLM requested code structure inspection', { filePath, reason, taskId: task?.id })
 			
-			const fullPath = path.resolve(this.workspace.getWorkspacePath(), filePath)
+			const fullPath = path.resolve(this.workspaceManager.getWorkspacePath(), filePath)
 			
 			if (!fs.existsSync(fullPath)) {
 				return {

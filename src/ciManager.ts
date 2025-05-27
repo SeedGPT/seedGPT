@@ -201,6 +201,12 @@ export class CIManager {
 
 	private async mergePR (prNumber: number): Promise<boolean> {
 		try {
+			const { data: pr } = await this.octokit.pulls.get({
+				owner: this.owner,
+				repo: this.repo,
+				pull_number: prNumber
+			})
+
 			await this.octokit.pulls.merge({
 				owner: this.owner,
 				repo: this.repo,
@@ -209,6 +215,19 @@ export class CIManager {
 			})
 
 			logger.info(`Successfully merged PR #${prNumber}`)
+			
+			const branchName = pr.head.ref
+			try {
+				await this.octokit.git.deleteRef({
+					owner: this.owner,
+					repo: this.repo,
+					ref: `heads/${branchName}`
+				})
+				logger.info(`Successfully deleted branch ${branchName} after merge`)
+			} catch (deleteError) {
+				logger.warn(`Failed to delete branch ${branchName} after merge`, { deleteError })
+			}
+
 			return true
 		} catch (error) {
 			logger.error(`Failed to merge PR #${prNumber}`, { error })
