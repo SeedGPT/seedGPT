@@ -1,9 +1,14 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import { exec } from 'child_process'
+import { promisify } from 'util'
 
 import logger from './logger.js'
-import { AnthropicMessage } from './types.js'
+import { AnthropicMessage, Config } from './types.js'
 import { WorkspaceManager } from './workspaceManager.js'
+import { LLMClient } from './llmClient.js'
+
+const execAsync = promisify(exec)
 
 export interface ContextFile {
 	path: string
@@ -16,27 +21,38 @@ export interface ContextAnalysis {
 	targetFiles: string[]
 	relatedFiles: string[]
 	keywords: string[]
+	searchQueries: string[]
 	estimatedScope: 'small' | 'medium' | 'large'
+}
+
+export interface SearchResult {
+	file: string
+	line: number
+	content: string
+	relevanceScore: number
 }
 
 export class ContextManager {
 	private workspaceManager: WorkspaceManager
-	private maxContextTokens: number = 50000 // Conservative estimate for token limits
+	private llmClient: LLMClient
+	private maxContextTokens: number = 50000
 	
-	constructor(workspaceManager: WorkspaceManager) {
+	constructor(workspaceManager: WorkspaceManager, llmClient: LLMClient) {
 		this.workspaceManager = workspaceManager
+		this.llmClient = llmClient
 	}
-
 	async analyzeTaskContext(taskDescription: string): Promise<ContextAnalysis> {
 		const keywords = this.extractKeywords(taskDescription)
-		const targetFiles = await this.identifyTargetFiles(taskDescription, keywords)
+		const searchQueries = await this.generateSearchQueries(taskDescription, keywords)
+		const targetFiles = await this.identifyTargetFilesWithSearch(taskDescription, searchQueries)
 		const relatedFiles = await this.findRelatedFiles(targetFiles, keywords)
 		const estimatedScope = this.estimateScope(taskDescription, targetFiles, relatedFiles)
 
 		logger.debug('Task context analysis completed', {
 			keywords,
+			searchQueries,
 			targetFiles,
-			relatedFiles: relatedFiles.slice(0, 10), // Limit for logging
+			relatedFiles: relatedFiles.slice(0, 10),
 			estimatedScope
 		})
 
@@ -44,6 +60,7 @@ export class ContextManager {
 			targetFiles,
 			relatedFiles,
 			keywords,
+			searchQueries,
 			estimatedScope
 		}
 	}
@@ -115,8 +132,210 @@ export class ContextManager {
 		if (matches) {
 			keywords.push(...matches)
 		}
+		return [...new Set(keywords)]
+	}
 
-		return [...new Set(keywords)] // Remove duplicates
+	private async generateSearchQueries(taskDescription: string, keywords: string[]): Promise<string[]> {
+		try {
+			const codebaseInfo = await this.extractCodebaseIdentifiers()
+			
+			const prompt = `Given this task description: "${taskDescription}"
+
+Available codebase identifiers:
+Classes: ${codebaseInfo.classes.join(', ')}
+Functions: ${codebaseInfo.functions.join(', ')}
+Modules: ${codebaseInfo.modules.join(', ')}
+
+Generate 3-5 specific search queries that would help find relevant source code files. Focus on:
+1. Function names, class names, or variable names that might be involved (use the available identifiers above)
+2. Key concepts or domain terms from the task
+3. Error messages or specific functionality mentioned
+4. File patterns or modules that might be relevant
+
+Return only the search queries, one per line, without explanations.
+Example format:
+export class TaskManager
+async function loadTasks
+task.status = 'completed'
+config.memory.store`
+
+			const response = await this.llmClient.generateResponse([{
+				role: 'user',
+				content: prompt
+			}], false)
+
+			const queries = response
+				.split('\n')
+				.map(line => line.trim())
+				.filter(line => line.length > 0 && !line.startsWith('#') && !line.startsWith('//'))
+				.slice(0, 5)
+
+			logger.debug('Generated search queries', { taskDescription, queries })
+			return queries.length > 0 ? queries : keywords
+		} catch (error) {
+			logger.warn('Failed to generate search queries, falling back to keywords', { error })
+			return keywords
+		}
+	}
+
+	private getRandomSample<T>(array: T[], size: number): T[] {
+		if (array.length <= size) return array
+		const shuffled = [...array].sort(() => 0.5 - Math.random())
+		return shuffled.slice(0, size)
+	}
+
+	private async extractCodebaseIdentifiers(): Promise<{
+		classes: string[],
+		functions: string[],
+		modules: string[]
+	}> {
+		const workspacePath = this.workspaceManager.getWorkspacePath()
+		const sourceFiles = await this.getAllSourceFiles(workspacePath)
+		
+		const classes = new Set<string>()
+		const functions = new Set<string>()
+		const modules = new Set<string>()
+
+		for (const file of sourceFiles) {
+			try {
+				const content = fs.readFileSync(file, 'utf-8')
+				const relativePath = path.relative(workspacePath, file)
+				
+				modules.add(path.basename(file, path.extname(file)))
+				
+				const classMatches = content.match(/(?:export\s+)?class\s+([A-Za-z][A-Za-z0-9]*)/g)
+				if (classMatches) {
+					classMatches.forEach(match => {
+						const className = match.replace(/(?:export\s+)?class\s+/, '')
+						classes.add(className)
+					})
+				}
+				
+				const functionMatches = content.match(/(?:export\s+)?(?:async\s+)?function\s+([A-Za-z][A-Za-z0-9]*)|([A-Za-z][A-ZaZ0-9]*)\s*(?::\s*[^=]*)?=\s*(?:async\s+)?\(/g)
+				if (functionMatches) {
+					functionMatches.forEach(match => {
+						const funcName = match.match(/([A-Za-z][A-Za-z0-9]*)/)?.[1]
+						if (funcName && !['if', 'for', 'while', 'switch', 'catch'].includes(funcName)) {
+							functions.add(funcName)
+						}
+					})
+				}
+				
+				const methodMatches = content.match(/(?:async\s+)?([A-Za-z][A-Za-z0-9]*)\s*\([^)]*\)\s*(?::\s*[^{]*)?{/g)
+				if (methodMatches) {
+					methodMatches.forEach(match => {
+						const methodName = match.match(/([A-Za-z][A-Za-z0-9]*)/)?.[1]
+						if (methodName && !['if', 'for', 'while', 'switch', 'catch', 'constructor'].includes(methodName)) {
+							functions.add(methodName)
+						}
+					})
+				}
+			} catch (error) {
+				// Skip files that can't be read
+			}
+		}
+
+		return {
+			classes: this.getRandomSample(Array.from(classes), 200),
+			functions: this.getRandomSample(Array.from(functions), 200),
+			modules: this.getRandomSample(Array.from(modules), 200)
+		}
+	}
+
+	private async identifyTargetFilesWithSearch(taskDescription: string, searchQueries: string[]): Promise<string[]> {
+		const searchResults: SearchResult[] = []
+		
+		for (const query of searchQueries) {
+			try {
+				const results = await this.searchCodebase(query)
+				searchResults.push(...results)
+			} catch (error) {
+				logger.debug('Search query failed', { query, error })
+			}
+		}
+
+		const fileScores = new Map<string, number>()
+		
+		for (const result of searchResults) {
+			const currentScore = fileScores.get(result.file) || 0
+			fileScores.set(result.file, currentScore + result.relevanceScore)
+		}
+
+		const targetFiles = Array.from(fileScores.entries())
+			.sort(([, a], [, b]) => b - a)
+			.slice(0, 5)
+			.map(([file]) => file)
+
+		if (targetFiles.length === 0) {
+			return await this.identifyTargetFiles(taskDescription, searchQueries)
+		}
+
+		logger.debug('Identified target files through search', { 
+			taskDescription, 
+			searchQueries, 
+			targetFiles,
+			totalResults: searchResults.length 
+		})
+
+		return targetFiles
+	}
+
+	private async searchCodebase(query: string): Promise<SearchResult[]> {
+		try {
+			const workspacePath = this.workspaceManager.getWorkspacePath()
+			const isWindows = process.platform === 'win32'
+			
+			const searchCmd = isWindows 
+				? `Get-ChildItem -Recurse -Include "*.ts","*.js","*.json","*.md" | Select-String -Pattern "${query.replace(/"/g, '`"')}" | ForEach-Object { "$($_.Filename):$($_.LineNumber):$($_.Line)" }`
+				: `grep -rn --include="*.ts" --include="*.js" --include="*.json" --include="*.md" "${query}" .`
+			
+			const { stdout } = await execAsync(searchCmd, { 
+				cwd: workspacePath,
+				shell: isWindows ? 'powershell.exe' : '/bin/bash',
+				timeout: 10000
+			})
+
+			const results: SearchResult[] = []
+			const lines = stdout.split('\n').filter(line => line.trim())
+
+			for (const line of lines) {
+				const match = line.match(/^([^:]+):(\d+):(.+)$/)
+				if (match) {
+					const [, filePath, lineNum, content] = match
+					const normalizedPath = path.relative(workspacePath, path.resolve(workspacePath, filePath))
+					
+					results.push({
+						file: normalizedPath.replace(/\\/g, '/'),
+						line: parseInt(lineNum),
+						content: content.trim(),
+						relevanceScore: this.calculateRelevanceScore(content, query)
+					})
+				}
+			}
+
+			return results
+		} catch (error) {
+			logger.debug('Codebase search failed', { query, error })
+			return []
+		}
+	}
+
+	private calculateRelevanceScore(content: string, query: string): number {
+		let score = 1
+		
+		if (content.toLowerCase().includes(query.toLowerCase())) {
+			score += 2
+		}
+		
+		if (content.includes('export') || content.includes('function') || content.includes('class')) {
+			score += 1
+		}
+		
+		if (content.includes('import') || content.includes('require')) {
+			score += 0.5
+		}
+		
+		return score
 	}
 
 	private async identifyTargetFiles(taskDescription: string, keywords: string[]): Promise<string[]> {

@@ -62,7 +62,7 @@ try {
 	branchRecoveryManager = new BranchRecoveryManager(workspaceManager)
 	dashboardManager = new DashboardManager(intelligentTaskManager, cfg, branchRecoveryManager)
 	llmTools = new LLMTools(branchRecoveryManager, workspaceManager)
-	contextManager = new ContextManager(workspaceManager)
+	contextManager = new ContextManager(workspaceManager, llmClient)
 	
 	const workflowDeps: WorkflowDependencies = {
 		llmClient,
