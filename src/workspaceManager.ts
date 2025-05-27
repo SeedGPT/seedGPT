@@ -155,72 +155,103 @@ export class WorkspaceManager {
 			.map(line => line.trimEnd()) // Remove trailing whitespace
 			.join('\n')
 			.replace(/\n+$/, '\n') // Ensure single trailing newline
-	}
-
-	private async tryApplyPatchMethods(patchContent: string, taskId: number): Promise<void> {
+	}	private async tryApplyPatchMethods(patchContent: string, taskId: number): Promise<void> {
 		const sanitizedPatch = this.sanitizePatch(patchContent)
 		const patchFile = path.join(this.workspacePath, `task-${taskId}.patch`)
+		
+		// Check workspace state before applying
+		const status = await this.git.status()
+		logger.debug('Workspace state before patch application', { 
+			taskId, 
+			currentBranch: status.current,
+			filesModified: status.files.length,
+			isClean: status.isClean()
+		})
 		
 		try {
 			// Method 1: Try with --index (staged)
 			fs.writeFileSync(patchFile, sanitizedPatch)
 			await this.git.raw(['apply', '--index', patchFile])
+			logger.debug('Patch applied successfully with --index', { taskId })
 			return
-		} catch (error1) {
-			logger.debug('Failed to apply patch with --index, trying without', { taskId, error: error1 })
+		} catch (error1: any) {
+			logger.debug('Failed to apply patch with --index, trying without', { 
+				taskId, 
+				error: error1.message || error1,
+				stderr: error1.stderr || 'No stderr'
+			})
 			
 			try {
 				// Method 2: Try without --index (working directory only)
 				await this.git.raw(['apply', patchFile])
-				// Manually stage the changes
 				await this.git.add('.')
+				logger.debug('Patch applied successfully without --index', { taskId })
 				return
-			} catch (error2) {
-				logger.debug('Failed to apply patch normally, trying with --whitespace=fix', { taskId, error: error2 })
+			} catch (error2: any) {
+				logger.debug('Failed to apply patch normally, trying with --whitespace=fix', { 
+					taskId, 
+					error: error2.message || error2,
+					stderr: error2.stderr || 'No stderr'
+				})
 				
 				try {
 					// Method 3: Try with whitespace fixing
 					await this.git.raw(['apply', '--whitespace=fix', patchFile])
 					await this.git.add('.')
+					logger.debug('Patch applied successfully with --whitespace=fix', { taskId })
 					return
-				} catch (error3) {
-					logger.debug('Failed to apply patch with whitespace fix, trying manual application', { taskId, error: error3 })
+				} catch (error3: any) {
+					logger.debug('Failed to apply patch with whitespace fix, trying manual application', { 
+						taskId, 
+						error: error3.message || error3,
+						stderr: error3.stderr || 'No stderr'
+					})
 					
 					// Method 4: Manual file application as fallback
 					await this.manuallyApplyPatch(sanitizedPatch, taskId)
+					logger.debug('Patch applied successfully with manual method', { taskId })
 					return
 				}
 			}
 		}
 	}
-
 	private async manuallyApplyPatch(patchContent: string, taskId: number): Promise<void> {
 		const lines = patchContent.split('\n')
+		const fileOperations: Map<string, { additions: string[], deletions: Set<string>, isNewFile: boolean }> = new Map()
 		let currentFile: string | null = null
-		let fileChanges: Map<string, string[]> = new Map()
+		let currentOperation: { additions: string[], deletions: Set<string>, isNewFile: boolean } | null = null
 		
 		for (const line of lines) {
 			if (line.startsWith('diff --git')) {
 				const match = line.match(/diff --git a\/(.+) b\/(.+)/)
 				if (match) {
 					currentFile = match[2]
+					if (currentFile !== '/dev/null') {
+						currentOperation = { additions: [], deletions: new Set(), isNewFile: false }
+						fileOperations.set(currentFile, currentOperation)
+					}
+				}
+			} else if (line.startsWith('new file mode')) {
+				if (currentOperation) {
+					currentOperation.isNewFile = true
 				}
 			} else if (line.startsWith('+++')) {
 				const match = line.match(/\+\+\+ b\/(.+)/)
 				if (match) {
 					currentFile = match[1]
-					if (currentFile !== '/dev/null' && !fileChanges.has(currentFile)) {
-						fileChanges.set(currentFile, [])
-					}
 				}
-			} else if (line.startsWith('+') && !line.startsWith('+++') && currentFile && currentFile !== '/dev/null') {
+			} else if (line.startsWith('+') && !line.startsWith('+++') && currentOperation) {
 				const content = line.substring(1)
-				fileChanges.get(currentFile)?.push(content)
+				currentOperation.additions.push(content)
+			} else if (line.startsWith('-') && !line.startsWith('---') && currentOperation) {
+				const content = line.substring(1)
+				currentOperation.deletions.add(content)
 			}
 		}
 		
 		// Apply changes to files
-		for (const [filePath, newLines] of fileChanges) {
+		let filesModified = 0
+		for (const [filePath, operation] of fileOperations) {
 			const fullPath = path.join(this.workspacePath, filePath)
 			const dir = path.dirname(fullPath)
 			
@@ -228,14 +259,41 @@ export class WorkspaceManager {
 				fs.mkdirSync(dir, { recursive: true })
 			}
 			
-			// For new files, just write the content
-			if (!fs.existsSync(fullPath)) {
-				fs.writeFileSync(fullPath, newLines.join('\n') + '\n')
+			if (operation.isNewFile || !fs.existsSync(fullPath)) {
+				// Create new file with additions
+				fs.writeFileSync(fullPath, operation.additions.join('\n') + '\n')
+				filesModified++
+			} else {
+				// Modify existing file
+				let content = fs.readFileSync(fullPath, 'utf-8')
+				let lines = content.split('\n')
+				
+				// Remove deleted lines
+				for (const deletedLine of operation.deletions) {
+					const index = lines.indexOf(deletedLine)
+					if (index !== -1) {
+						lines.splice(index, 1)
+					}
+				}
+				
+				// Add new lines (simple append for now)
+				lines.push(...operation.additions)
+				
+				// Remove empty trailing lines and ensure single newline at end
+				while (lines.length > 0 && lines[lines.length - 1] === '') {
+					lines.pop()
+				}
+				
+				const newContent = lines.join('\n') + '\n'
+				if (newContent !== content) {
+					fs.writeFileSync(fullPath, newContent)
+					filesModified++
+				}
 			}
 		}
 		
 		await this.git.add('.')
-		logger.info('Applied patch manually', { taskId, filesChanged: fileChanges.size })
+		logger.info('Applied patch manually', { taskId, filesChanged: filesModified })
 	}
 	async applyPatch (patchContent: string, taskId: number): Promise<void> {
 		try {
@@ -452,7 +510,6 @@ export class WorkspaceManager {
 			return { valid: false, reason: `Validation failed: ${error}` }
 		}
 	}
-
 	validatePatchContent(patchContent: string): { valid: boolean; reason?: string } {
 		if (!patchContent || patchContent.trim().length === 0) {
 			return { valid: false, reason: 'Patch content is empty' }
@@ -466,12 +523,34 @@ export class WorkspaceManager {
 		}
 
 		// Check for meaningful changes (not just whitespace)
-		const hasAdditions = trimmedContent.includes('\n+') && !trimmedContent.match(/^\+\+\+/m)
-		const hasDeletions = trimmedContent.includes('\n-') && !trimmedContent.match(/^---/m)
+		const hasAdditions = /\n\+(?!\+\+)/.test(trimmedContent)
+		const hasDeletions = /\n-(?!--)/.test(trimmedContent)
 		const hasModifications = trimmedContent.includes('@@')
 
 		if (!hasAdditions && !hasDeletions && !hasModifications) {
 			return { valid: false, reason: 'Patch does not contain meaningful changes' }
+		}
+
+		// Check for common patch format issues
+		const lines = trimmedContent.split('\n')
+		let hasValidDiffHeader = false
+		let hasValidFileHeader = false
+		
+		for (const line of lines) {
+			if (line.startsWith('diff --git')) {
+				hasValidDiffHeader = true
+			}
+			if (line.startsWith('+++') || line.startsWith('---')) {
+				hasValidFileHeader = true
+			}
+		}
+		
+		if (!hasValidDiffHeader) {
+			return { valid: false, reason: 'Missing valid diff header (diff --git)' }
+		}
+		
+		if (!hasValidFileHeader) {
+			return { valid: false, reason: 'Missing valid file headers (+++ or ---)' }
 		}
 
 		return { valid: true }
