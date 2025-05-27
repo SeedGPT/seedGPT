@@ -1,7 +1,7 @@
 # SeedGPT - Self-Evolving AI Development Agent
 
 An autonomous AI agent that can evolve its own codebase, manage tasks, and deploy changes through GitHub automation.
-
+ 
 ## 🎯 Objective
 
 The agent has one primary directive: **EVOLVE**. It will autonomously:
