@@ -6,7 +6,7 @@
 	"scripts": {
 		"build": "tsc",
 		"start": "node index.js",
-		"test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+		"test": "npm run build && node --experimental-vm-modules node_modules/jest/bin/jest.js",
 		"upgrade": "npm update && npx ncu -u && npm install"
 	},
 	"engines": {
